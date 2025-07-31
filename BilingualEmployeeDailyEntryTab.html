@@ -83,6 +83,7 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
     const [managementPin, setManagementPin] = React.useState('');
     const [showPinInput, setShowPinInput] = React.useState(false);
     const [duplicateWarning, setDuplicateWarning] = React.useState(false);
+    const [isUpdateMode, setIsUpdateMode] = React.useState(false);
     const [loadingExistingData, setLoadingExistingData] = React.useState(false);
     const [checkingExistingData, setCheckingExistingData] = React.useState(false);
     const [fieldsLocked, setFieldsLocked] = React.useState(false);
@@ -104,6 +105,7 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
     
     const checkExistingEntry = async () => {
         setCheckingExistingData(true);
+        setIsUpdateMode(false);
         setDuplicateWarning(false);
         setFieldsLocked(true);
         setShowLoadExistingPin(false);
@@ -285,9 +287,10 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                                     notes: data.notes || ''
                                 });
                             }
-                            
+
                             setFieldsLocked(false);
                             setDuplicateWarning(false);
+                            setIsUpdateMode(true);
                             setShowLoadExistingPin(false);
                             setLoadExistingPin('');
                             setLoadingExistingData(false);
@@ -346,6 +349,7 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
         });
         
         setDuplicateWarning(false);
+        setIsUpdateMode(false);
         setFieldsLocked(false);
         setShowLoadExistingPin(false);
         setLoadExistingPin('');
@@ -366,12 +370,12 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
     const handleSubmit = async (e) => {
         e.preventDefault();
         
-        if (duplicateWarning && !showPinInput) {
+        if (isUpdateMode && !showPinInput) {
             setShowPinInput(true);
             return;
         }
-        
-        if (duplicateWarning && showPinInput) {
+
+        if (isUpdateMode && showPinInput) {
             if (!managementPin || managementPin.trim() === '') {
                 alert(t('pinRequiredToUpdate'));
                 return;
@@ -390,8 +394,8 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                 bread: formData.bread,
                 highCostItems: formData.highCostItems,
                 notes: formData.notes,
-                isUpdate: duplicateWarning,
-                managementPin: duplicateWarning ? managementPin : null,
+                isUpdate: isUpdateMode,
+                managementPin: isUpdateMode ? managementPin : null,
                 employeeId: employeeSession.employeeId
             };
             
@@ -454,6 +458,7 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
             },
             notes: ''
         });
+        setIsUpdateMode(false);
     };
     
     const cancelUpdate = () => {
@@ -952,9 +957,9 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                             React.createElement('div', {
                                 className: 'animate-spin rounded-full h-4 w-4 border-b-2 border-white'
                             }),
-                            duplicateWarning ? t('updating') : t('saving')
+                            isUpdateMode ? t('updating') : t('saving')
                         ) : React.createElement(React.Fragment, null,
-                            fieldsLocked ? t('loadDataFirst') : (duplicateWarning ? t('updateEntry') : t('saveEntry')),
+                            fieldsLocked ? t('loadDataFirst') : (isUpdateMode ? t('updateEntry') : t('saveEntry')),
                             showPinInput && !managementPin && ' ' + t('pinRequired')
                         )
                     )
