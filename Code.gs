@@ -887,12 +887,112 @@ function getData() {
       dailyBreadTracking: getSheetData('DailyBreadTracking'),
       dailyHighCostItems: getSheetData('DailyHighCostItems'),
       dailyInventoryCount: getSheetData('DailyInventoryCount'),
-      dailyProductSales: getSheetData('DailyProductSales')
+      dailyProductSales: getSheetData('DailyProductSales'),
+      weeklyInventory: getSheetData('WeeklyInventory')
     };
-    
     return JSON.stringify(data);
   } catch (error) {
     Logger.log('Error getting data: ' + error.toString());
     throw new Error('Failed to retrieve data: ' + error.message);
   }
 }
+// Weekly Inventory Functions
+function checkExistingWeeklyEntry(weekStartDate) {
+  try {
+    const data = getSheetData('WeeklyInventory');
+    const target = new Date(weekStartDate).toDateString();
+    const entries = data.filter(row => row.week_start_date && new Date(row.week_start_date).toDateString() === target);
+    if (entries.length > 0) {
+      return JSON.stringify({ exists: true, entries: entries, weekStart: target });
+    }
+    return JSON.stringify({ exists: false, weekStart: target });
+  } catch (error) {
+    Logger.log('Error checking weekly entry: ' + error.toString());
+    throw new Error('Failed to check weekly entry: ' + error.message);
+  }
+}
+
+function deleteExistingWeeklyEntries(weekStartDate) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('WeeklyInventory');
+  if (!sheet) return;
+  const target = new Date(weekStartDate).toDateString();
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const index = headers.indexOf('week_start_date');
+  if (index === -1) return;
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (data[i][index] && new Date(data[i][index]).toDateString() === target) {
+      sheet.deleteRow(i + 1);
+    }
+  }
+}
+
+function saveWeeklyEntry(entryData) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('WeeklyInventory');
+    const weekStart = new Date(entryData.weekStartDate).toDateString();
+    const weekEnd = entryData.weekEndDate;
+    const employeeId = entryData.employeeId || 'unknown';
+
+    if (entryData.isUpdate) {
+      if (!entryData.managementPin || !validateManagementPin(entryData.managementPin)) {
+        return JSON.stringify({ success: false, message: 'Invalid management PIN. Update not authorized.' });
+      }
+      deleteExistingWeeklyEntries(weekStart);
+    }
+
+    entryData.items.forEach(it => {
+      const row = [
+        Utilities.getUuid(),
+        weekStart,
+        weekEnd,
+        it.category,
+        it.name,
+        parseFloat(it.opening) || 0,
+        parseFloat(it.received) || 0,
+        parseFloat(it.expired) || 0,
+        parseFloat(it.remaining) || 0,
+        it.unit,
+        entryData.notes || '',
+        employeeId,
+        new Date(),
+        new Date()
+      ];
+      sheet.appendRow(row);
+    });
+
+    const msg = entryData.isUpdate ? `Weekly entry for ${weekStart} updated successfully!` : `Weekly entry for ${weekStart} saved successfully!`;
+    return JSON.stringify({ success: true, message: msg });
+  } catch (error) {
+    Logger.log('Error saving weekly entry: ' + error.toString());
+    throw new Error('Failed to save weekly entry: ' + error.message);
+  }
+}
+
+function generateWeeklyReport(date) {
+  try {
+    const weekStart = new Date(date).toDateString();
+    const data = getSheetData('WeeklyInventory');
+    const entries = data.filter(row => row.week_start_date && new Date(row.week_start_date).toDateString() === weekStart);
+    const items = {};
+    entries.forEach(r => {
+      const key = r.item_name.toLowerCase().replace(/\s+/g, '_');
+      items[key] = {
+        opening_quantity: r.opening_quantity,
+        received_quantity: r.received_quantity,
+        expired_quantity: r.expired_quantity,
+        remaining_quantity: r.remaining_quantity,
+        unit: r.unit,
+        category: r.category
+      };
+    });
+    const notes = entries.length > 0 ? entries[0].notes : '';
+    return JSON.stringify({ weekStart: weekStart, dataFound: entries.length > 0, items: items, notes: notes });
+  } catch (error) {
+    Logger.log('Error generating weekly report: ' + error.toString());
+    throw new Error('Failed to generate weekly report: ' + error.message);
+  }
+}
+
