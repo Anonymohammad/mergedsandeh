@@ -22,6 +22,62 @@ function ManagementDashboard() {
         }
     }, [selectedPeriod, customDate]);
 
+    const getAcceptableRemainingRange = (stackWeightKg) => {
+        return {
+            min: 0.6,
+            max: 0.85,
+            optimal: Math.min(0.8, stackWeightKg * 0.06)
+        };
+    };
+
+    const getAcceptableLossRange = () => {
+        return { min: 12, max: 28 };
+    };
+
+    const getAcceptableTotalWasteRange = (stackWeightKg) => {
+        const lossRange = getAcceptableLossRange();
+        const remainingRange = getAcceptableRemainingRange(stackWeightKg);
+        const minTotalWaste = lossRange.min + (remainingRange.min / stackWeightKg * 100);
+        const maxTotalWaste = lossRange.max + (remainingRange.max / stackWeightKg * 100);
+        return {
+            min: Math.round(minTotalWaste * 10) / 10,
+            max: Math.round(maxTotalWaste * 10) / 10
+        };
+    };
+
+    const computeShawarmaMetrics = (shawarma) => {
+        if (!shawarma || !shawarma.starting_weight_kg) return shawarma;
+
+        const startingWeight = parseFloat(shawarma.starting_weight_kg) || 0;
+        const remainingWeight = parseFloat(shawarma.remaining_weight_kg) || 0;
+        const shavingWeight = parseFloat(shawarma.shaving_weight_kg) || 0;
+        const staffMealsWeight = parseFloat(shawarma.staff_meals_weight_kg) || 0;
+        const ordersWeight = parseFloat(shawarma.orders_weight_kg) || 0;
+        const revenueQar = parseFloat(shawarma.revenue_qar) || 0;
+
+        const lossWeight = startingWeight - (ordersWeight + shavingWeight + staffMealsWeight + remainingWeight);
+        const lossPercentage = startingWeight > 0 ? (lossWeight / startingWeight) * 100 : 0;
+
+        const totalWasteWeight = lossWeight + remainingWeight;
+        const totalWastePercentage = startingWeight > 0 ? (totalWasteWeight / startingWeight) * 100 : 0;
+
+        const revenuePerKg = ordersWeight > 0 ? revenueQar / ordersWeight : 0;
+        const costPerKg = startingWeight > 0 ? (shawarma.stack_cost_qar || 0) / startingWeight : 0;
+        const profitPerKg = revenuePerKg - costPerKg;
+
+        return {
+            ...shawarma,
+            loss_weight_kg: lossWeight,
+            loss_percentage: lossPercentage,
+            waste_weight_kg: totalWasteWeight,
+            waste_percentage: totalWastePercentage,
+            revenue_per_kg: revenuePerKg,
+            profit_per_kg: profitPerKg,
+            total_waste_range: getAcceptableTotalWasteRange(startingWeight),
+            remaining_range: getAcceptableRemainingRange(startingWeight)
+        };
+    };
+
     const loadDashboardData = async () => {
         // Only show card loading for refreshes, not initial load
         if (dashboardData) {
@@ -66,6 +122,9 @@ function ManagementDashboard() {
                     console.log("Received data:", data);
                     try {
                         const parsedData = JSON.parse(data);
+                        if (parsedData.shawarma) {
+                            parsedData.shawarma = computeShawarmaMetrics(parsedData.shawarma);
+                        }
                         setDashboardData(parsedData);
                         generateAlerts(parsedData);
                         
@@ -98,23 +157,54 @@ function ManagementDashboard() {
     const generateAlerts = (data) => {
         const newAlerts = [];
         
-        // Shawarma waste alerts
-        if (data.shawarma && data.shawarma.waste_percentage) {
-            if (data.shawarma.waste_percentage > 28) {
+        if (data.shawarma) {
+            const lossRange = getAcceptableLossRange();
+            const wasteRange = getAcceptableTotalWasteRange(data.shawarma.starting_weight_kg || 0);
+            const remainingRange = getAcceptableRemainingRange(data.shawarma.starting_weight_kg || 0);
+
+            if (data.shawarma.loss_percentage > lossRange.max) {
+                newAlerts.push({
+                    type: 'danger',
+                    icon: '⚠️',
+                    title: 'High Cooking Loss',
+                    message: `Loss is ${data.shawarma.loss_percentage.toFixed(1)}% (max ${lossRange.max}%)`,
+                    action: 'Review cooking process'
+                });
+            } else if (data.shawarma.loss_percentage > 25) {
+                newAlerts.push({
+                    type: 'warning',
+                    icon: '⚠️',
+                    title: 'Cooking Loss Above Optimal',
+                    message: `Loss is ${data.shawarma.loss_percentage.toFixed(1)}%`,
+                    action: 'Check stack setup'
+                });
+            }
+
+            if (data.shawarma.waste_percentage > wasteRange.max) {
                 newAlerts.push({
                     type: 'danger',
                     icon: '⚠️',
                     title: 'High Shawarma Waste',
-                    message: `Waste is ${data.shawarma.waste_percentage.toFixed(1)}% (target: <28%)`,
+                    message: `Waste is ${data.shawarma.waste_percentage.toFixed(1)}% (max ${wasteRange.max.toFixed(1)}%)`,
                     action: 'Review cutting techniques and order timing'
                 });
-            } else if (data.shawarma.waste_percentage < 12) {
+            }
+
+            if (data.shawarma.remaining_weight_kg > remainingRange.max) {
+                newAlerts.push({
+                    type: 'danger',
+                    icon: '⚠️',
+                    title: 'High Remaining Weight',
+                    message: `Remaining ${(data.shawarma.remaining_weight_kg * 1000).toFixed(0)}g (max ${(remainingRange.max * 1000).toFixed(0)}g)`,
+                    action: 'Adjust cutting or order timing'
+                });
+            } else if (data.shawarma.remaining_weight_kg > remainingRange.optimal) {
                 newAlerts.push({
                     type: 'warning',
-                    icon: '🔍',
-                    title: 'Unusually Low Waste',
-                    message: `Waste is ${data.shawarma.waste_percentage.toFixed(1)}% (verify measurements)`,
-                    action: 'Double-check weight measurements'
+                    icon: '⚠️',
+                    title: 'Remaining Weight Above Optimal',
+                    message: `Remaining ${(data.shawarma.remaining_weight_kg * 1000).toFixed(0)}g (optimal ${(remainingRange.optimal * 1000).toFixed(0)}g)`,
+                    action: 'Check portion sizes'
                 });
             }
         }
@@ -314,20 +404,27 @@ function ManagementDashboard() {
                     <div className="bg-white rounded-lg shadow p-6">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm font-medium text-gray-600">Shawarma Waste</p>
+                                <p className="text-sm font-medium text-gray-600">Total Waste</p>
                                 <p className={`text-2xl font-bold ${
                                     !(dashboardData && dashboardData.shawarma && dashboardData.shawarma.waste_percentage) ? 'text-gray-400' :
-                                    dashboardData.shawarma.waste_percentage > 28 ? 'text-red-600' : 
-                                    dashboardData.shawarma.waste_percentage < 12 ? 'text-yellow-600' : 'text-green-600'
+                                    dashboardData.shawarma.waste_percentage > (dashboardData.shawarma.total_waste_range ? dashboardData.shawarma.total_waste_range.max : 28) ? 'text-red-600' :
+                                    'text-green-600'
                                 }`}>
-                                    {dashboardData && dashboardData.shawarma && dashboardData.shawarma.waste_percentage ? 
+                                    {dashboardData && dashboardData.shawarma && dashboardData.shawarma.waste_percentage ?
                                         `${dashboardData.shawarma.waste_percentage.toFixed(1)}%` : 'N/A'}
                                 </p>
+                                {dashboardData && dashboardData.shawarma && dashboardData.shawarma.loss_weight_kg !== undefined && (
+                                    <p className="text-xs text-gray-600 mt-1">
+                                        Loss: {dashboardData.shawarma.loss_weight_kg.toFixed(3)} kg ({dashboardData.shawarma.loss_percentage.toFixed(1)}%)
+                                    </p>
+                                )}
                             </div>
                             <div className="text-3xl">🗑️</div>
                         </div>
                         <div className="mt-4 text-sm text-gray-500">
-                            Range: 12-28%
+                            {dashboardData && dashboardData.shawarma && dashboardData.shawarma.total_waste_range ?
+                                `Target: ${dashboardData.shawarma.total_waste_range.min.toFixed(1)}-${dashboardData.shawarma.total_waste_range.max.toFixed(1)}%` :
+                                'Target: 12-28%'}
                         </div>
                     </div>
                 </LoadingCard>
@@ -369,8 +466,16 @@ function ManagementDashboard() {
                                     </div>
                                     <div>
                                         <span className="text-gray-600">Remaining Weight:</span>
-                                        <p className="font-medium">{dashboardData.shawarma.remaining_weight_kg ? 
-                                            dashboardData.shawarma.remaining_weight_kg.toFixed(3) : 'N/A'} kg</p>
+                                        <p className={`font-medium ${
+                                            dashboardData.shawarma.remaining_range && dashboardData.shawarma.remaining_weight_kg > dashboardData.shawarma.remaining_range.max ? 'text-red-600' :
+                                            dashboardData.shawarma.remaining_range && dashboardData.shawarma.remaining_weight_kg > dashboardData.shawarma.remaining_range.optimal ? 'text-yellow-600' : ''
+                                        }`}>
+                                            {dashboardData.shawarma.remaining_weight_kg ?
+                                                dashboardData.shawarma.remaining_weight_kg.toFixed(3) : 'N/A'} kg
+                                        </p>
+                                        {dashboardData.shawarma.remaining_range && (
+                                            <p className="text-xs text-gray-600">Max {(dashboardData.shawarma.remaining_range.max * 1000).toFixed(0)}g</p>
+                                        )}
                                     </div>
                                     <div>
                                         <span className="text-gray-600">Orders Weight:</span>
@@ -385,13 +490,18 @@ function ManagementDashboard() {
                                     <div>
                                         <span className="text-gray-600">Staff Meals:</span>
                                         <p className={`font-medium ${(dashboardData.shawarma.staff_meals_weight_kg || 0) > 0.4 ? 'text-red-600' : 'text-green-600'}`}>
-                                            {dashboardData.shawarma.staff_meals_weight_kg ? 
+                                            {dashboardData.shawarma.staff_meals_weight_kg ?
                                                 dashboardData.shawarma.staff_meals_weight_kg.toFixed(3) : '0.000'} kg
                                         </p>
                                     </div>
                                     <div>
+                                        <span className="text-gray-600">Loss Weight:</span>
+                                        <p className="font-medium">{dashboardData.shawarma.loss_weight_kg !== undefined ?
+                                            dashboardData.shawarma.loss_weight_kg.toFixed(3) : 'N/A'} kg ({dashboardData.shawarma.loss_percentage !== undefined ? dashboardData.shawarma.loss_percentage.toFixed(1) : 'N/A'}%)</p>
+                                    </div>
+                                    <div>
                                         <span className="text-gray-600">Waste Weight:</span>
-                                        <p className="font-medium">{dashboardData.shawarma.waste_weight_kg ? 
+                                        <p className="font-medium">{dashboardData.shawarma.waste_weight_kg ?
                                             dashboardData.shawarma.waste_weight_kg.toFixed(3) : 'N/A'} kg</p>
                                     </div>
                                 </div>
