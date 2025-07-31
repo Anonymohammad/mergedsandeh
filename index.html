@@ -179,6 +179,8 @@
         loadDataFirst: "Load Data First",
         updateEntry: "Update Entry",
         saveEntry: "Save Daily Entry",
+        saveWeeklyEntry: "Save Weekly Entry",
+        updateWeeklyEntry: "Update Weekly Entry",
         updating: "Updating...",
         saving: "Saving...",
         pinRequired: "(PIN Required)",
@@ -186,6 +188,33 @@
         // Weekly Counts
         weeklyInventoryCounts: "Weekly Inventory Counts",
         weeklyInventorySystem: "Weekly inventory counting system coming soon...",
+        weekStart: "Week Start Date",
+        weeklyNotes: "Weekly Notes",
+        dairyProducts: "Dairy Products",
+        mozzarella: "Mozzarella",
+        cheddar: "Cheddar",
+        freshVegetables: "Fresh Vegetables",
+        lettuce: "Lettuce",
+        coleslaw: "Coleslaw",
+        corn: "Corn",
+        pickles: "Pickles",
+        peppers: "Peppers",
+        onion: "Onion",
+        mushroom: "Mushroom",
+        saucesCondiments: "Sauces & Condiments",
+        garlicSauce: "Garlic Sauce",
+        otherSauces: "Other Sauces",
+        frozenItems: "Frozen Items",
+        friesPremium: "Fries Premium",
+        friesRegular: "Fries Regular",
+        beverages: "Beverages",
+        softDrinks: "Soft Drinks",
+        waterBottles: "Water Bottles",
+        cookingOils: "Cooking Oils",
+        friesCookingOil: "Fries Cooking Oil",
+        stripsCookingOil: "Strips Cooking Oil",
+        additionalProteins: "Additional Proteins",
+        turkey: "Turkey",
         
         // Roles (New)
         roleEmployee: "Employee",
@@ -311,6 +340,8 @@
         loadDataFirst: "تحميل البيانات أولاً",
         updateEntry: "تحديث الإدخال",
         saveEntry: "حفظ الإدخال اليومي",
+        saveWeeklyEntry: "حفظ الإدخال الأسبوعي",
+        updateWeeklyEntry: "تحديث الإدخال الأسبوعي",
         updating: "جاري التحديث...",
         saving: "جاري الحفظ...",
         pinRequired: "(الرقم السري مطلوب)",
@@ -318,6 +349,33 @@
         // Weekly Counts
         weeklyInventoryCounts: "جرد المخزون الأسبوعي",
         weeklyInventorySystem: "نظام الجرد الأسبوعي قريباً...",
+        weekStart: "تاريخ بداية الأسبوع",
+        weeklyNotes: "ملاحظات أسبوعية",
+        dairyProducts: "منتجات الألبان",
+        mozzarella: "موزاريلا",
+        cheddar: "شيدر",
+        freshVegetables: "خضروات طازجة",
+        lettuce: "خس",
+        coleslaw: "كول سلو",
+        corn: "ذرة",
+        pickles: "مخلل",
+        peppers: "فلفل",
+        onion: "بصل",
+        mushroom: "فطر",
+        saucesCondiments: "صلصات وتوابل",
+        garlicSauce: "صوص الثوم",
+        otherSauces: "صلصات أخرى",
+        frozenItems: "مجمدات",
+        friesPremium: "بطاطس مميزة",
+        friesRegular: "بطاطس عادية",
+        beverages: "مشروبات",
+        softDrinks: "مشروبات غازية",
+        waterBottles: "مياه معبأة",
+        cookingOils: "زيوت الطهي",
+        friesCookingOil: "زيت قلي البطاطس",
+        stripsCookingOil: "زيت قلي الستربس",
+        additionalProteins: "بروتينات إضافية",
+        turkey: "ديك رومي",
         
         // Roles (New)
         roleEmployee: "موظف",
@@ -830,15 +888,12 @@ function DailyEntryTab({ employeeSession }) {
 
         function WeeklyCountsTab({ employeeSession }) {
             const { t } = React.useContext(LanguageContext);
-            return React.createElement('div', {
-                className: 'bg-white rounded-lg shadow p-6'
-            },
-                React.createElement('h2', {
-                    className: 'text-xl font-semibold mb-4'
-                }, t('weeklyCounts')),
-                React.createElement('p', {
-                    className: 'text-gray-600'
-                }, 'Weekly inventory counts coming soon...')
+            if (typeof window.EmployeeWeeklyEntryTab !== "undefined") {
+                return React.createElement(window.EmployeeWeeklyEntryTab, { employeeSession });
+            }
+            return React.createElement("div", { className: "bg-white rounded-lg shadow p-6" },
+                React.createElement("h2", { className: "text-xl font-semibold mb-4" }, t('weeklyInventoryCounts')),
+                React.createElement("p", { className: "text-gray-600" }, t('weeklyInventorySystem'))
             );
         }
 
@@ -1178,6 +1233,7 @@ function DailyEntryTab({ employeeSession }) {
 
     <!-- Include component files from existing apps -->
     <?!= include('BilingualEmployeeDailyEntryTab'); ?>
+    <?!= include('BilingualEmployeeWeeklyEntryTab'); ?>
     <?!= include('ManagementDashboard'); ?>
     <?!= include('DailyEntryTab'); ?>
 
