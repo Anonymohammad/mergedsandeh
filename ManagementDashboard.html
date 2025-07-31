@@ -53,13 +53,16 @@ function ManagementDashboard() {
         const shavingWeight = parseFloat(shawarma.shaving_weight_kg) || 0;
         const staffMealsWeight = parseFloat(shawarma.staff_meals_weight_kg) || 0;
         const ordersWeight = parseFloat(shawarma.orders_weight_kg) || 0;
+
         const revenueQar = parseFloat(shawarma.revenue_qar) || 0;
+
 
         const lossWeight = startingWeight - (ordersWeight + shavingWeight + staffMealsWeight + remainingWeight);
         const lossPercentage = startingWeight > 0 ? (lossWeight / startingWeight) * 100 : 0;
 
         const totalWasteWeight = lossWeight + remainingWeight;
         const totalWastePercentage = startingWeight > 0 ? (totalWasteWeight / startingWeight) * 100 : 0;
+
 
         const revenuePerKg = ordersWeight > 0 ? revenueQar / ordersWeight : 0;
         const costPerKg = startingWeight > 0 ? (shawarma.stack_cost_qar || 0) / startingWeight : 0;
@@ -71,10 +74,12 @@ function ManagementDashboard() {
             loss_percentage: lossPercentage,
             waste_weight_kg: totalWasteWeight,
             waste_percentage: totalWastePercentage,
+
             revenue_per_kg: revenuePerKg,
             profit_per_kg: profitPerKg,
             total_waste_range: getAcceptableTotalWasteRange(startingWeight),
             remaining_range: getAcceptableRemainingRange(startingWeight)
+
         };
     };
 
@@ -160,7 +165,9 @@ function ManagementDashboard() {
         if (data.shawarma) {
             const lossRange = getAcceptableLossRange();
             const wasteRange = getAcceptableTotalWasteRange(data.shawarma.starting_weight_kg || 0);
+
             const remainingRange = getAcceptableRemainingRange(data.shawarma.starting_weight_kg || 0);
+
 
             if (data.shawarma.loss_percentage > lossRange.max) {
                 newAlerts.push({
@@ -189,6 +196,7 @@ function ManagementDashboard() {
                     action: 'Review cutting techniques and order timing'
                 });
             }
+//<<<<<<< 8gof9h-codex/investigate-shawarma-waste-metrics-in-dashboard
 
             if (data.shawarma.remaining_weight_kg > remainingRange.max) {
                 newAlerts.push({
@@ -207,6 +215,8 @@ function ManagementDashboard() {
                     action: 'Check portion sizes'
                 });
             }
+
+//>>>>>>> main
         }
 
         // Staff meals alert
