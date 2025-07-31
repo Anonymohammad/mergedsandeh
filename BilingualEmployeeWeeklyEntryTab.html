@@ -59,6 +59,15 @@ function BilingualEmployeeWeeklyEntryTab({ employeeSession }) {
         }
     ];
 
+    const weekStartDay = 4; // Thursday
+
+    const getWeekStart = (date) => {
+        const d = new Date(date);
+        const diff = (d.getDay() >= weekStartDay ? d.getDay() - weekStartDay : 7 - (weekStartDay - d.getDay()));
+        d.setDate(d.getDate() - diff);
+        return d.toISOString().split('T')[0];
+    };
+
     // Build default form state
     const buildDefaultState = () => {
         const inv = {};
@@ -74,7 +83,7 @@ function BilingualEmployeeWeeklyEntryTab({ employeeSession }) {
     };
 
     const [formData, setFormData] = React.useState(buildDefaultState());
-    const [selectedDate, setSelectedDate] = React.useState(new Date().toISOString().split('T')[0]);
+    const [selectedDate, setSelectedDate] = React.useState(getWeekStart(new Date()));
     const [duplicateWarning, setDuplicateWarning] = React.useState(false);
     const [checkingExistingData, setCheckingExistingData] = React.useState(false);
     const [isUpdateMode, setIsUpdateMode] = React.useState(false);
@@ -91,6 +100,12 @@ function BilingualEmployeeWeeklyEntryTab({ employeeSession }) {
             checkExistingEntry();
         }
     }, [selectedDate]);
+
+    React.useEffect(() => {
+        if (!checkingExistingData && !duplicateWarning && selectedDate) {
+            loadPreviousWeekData();
+        }
+    }, [checkingExistingData, duplicateWarning, selectedDate]);
 
     const resetForm = () => {
         setFormData(buildDefaultState());
@@ -141,6 +156,29 @@ function BilingualEmployeeWeeklyEntryTab({ employeeSession }) {
             setCheckingExistingData(false);
             resetForm();
         }
+    };
+
+    const loadPreviousWeekData = async () => {
+        try {
+            const prevDate = new Date(selectedDate);
+            prevDate.setDate(prevDate.getDate() - 7);
+            const prevWeekStart = getWeekStart(prevDate);
+            await google.script.run
+                .withSuccessHandler(result => {
+                    const data = JSON.parse(result);
+                    if (data && data.dataFound) {
+                        setFormData(prev => {
+                            const inv = { ...prev.inventory };
+                            Object.entries(data.items).forEach(([key, val]) => {
+                                inv[key + '_opening'] = String(val.remaining_quantity || '');
+                            });
+                            return { ...prev, inventory: inv };
+                        });
+                    }
+                })
+                .withFailureHandler(() => {})
+                .generateWeeklyReport(prevWeekStart);
+        } catch (error) {}
     };
 
     const confirmLoadExistingData = async () => {
@@ -231,6 +269,7 @@ function BilingualEmployeeWeeklyEntryTab({ employeeSession }) {
                     alert(response.message);
                     if (response.success) {
                         resetForm();
+                        setSelectedDate(getWeekStart(new Date()));
                     }
                     setLoading(false);
                 })
@@ -253,7 +292,6 @@ function BilingualEmployeeWeeklyEntryTab({ employeeSession }) {
                     React.createElement('thead', null,
                         React.createElement('tr', { className: 'bg-gray-50' },
                             React.createElement('th', { className: 'border border-gray-200 px-3 py-2 text-left text-xs font-medium text-gray-600 w-32' }, t('item')),
-                            React.createElement('th', { className: 'border border-gray-200 px-3 py-2 text-left text-xs font-medium text-gray-600 w-20' }, t('opening')),
                             React.createElement('th', { className: 'border border-gray-200 px-3 py-2 text-left text-xs font-medium text-gray-600 w-20' }, t('received')),
                             React.createElement('th', { className: 'border border-gray-200 px-3 py-2 text-left text-xs font-medium text-gray-600 w-20' }, t('expired')),
                             React.createElement('th', { className: 'border border-gray-200 px-3 py-2 text-left text-xs font-medium text-gray-600 w-20' }, t('remaining'))
@@ -263,7 +301,7 @@ function BilingualEmployeeWeeklyEntryTab({ employeeSession }) {
                         items.map(item =>
                             React.createElement('tr', { key: item.key, className: 'hover:bg-gray-50' },
                                 React.createElement('td', { className: 'border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700' }, t(item.labelKey)),
-                                ['opening','received','expired','remaining'].map(field =>
+                                ['received','expired','remaining'].map(field =>
                                     React.createElement('td', { className: 'border border-gray-200 px-2 py-1', key: field },
                                         React.createElement('input', {
                                             type: 'number',
@@ -293,8 +331,9 @@ function BilingualEmployeeWeeklyEntryTab({ employeeSession }) {
                         React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('weekStart')),
                         React.createElement('input', {
                             type: 'date',
+                            step: 7,
                             value: selectedDate,
-                            onChange: e => setSelectedDate(e.target.value),
+                            onChange: e => setSelectedDate(getWeekStart(e.target.value)),
                             className: 'p-2 border rounded focus:ring-2 focus:ring-blue-500'
                         })
                     ),
@@ -363,7 +402,7 @@ function BilingualEmployeeWeeklyEntryTab({ employeeSession }) {
                     placeholder: t('managementPin') + ' ' + t('pinRequired')
                 }),
                 React.createElement('button', { type: 'button', onClick: submitForm, disabled: loading, className: 'bg-green-600 text-white px-4 py-2 rounded disabled:opacity-50' },
-                    loading ? (isUpdateMode ? t('updating') : t('saving')) : (isUpdateMode ? t('updateEntry') : t('saveEntry'))
+                    loading ? (isUpdateMode ? t('updating') : t('saving')) : (isUpdateMode ? t('updateWeeklyEntry') : t('saveWeeklyEntry'))
                 )
             )
         )
