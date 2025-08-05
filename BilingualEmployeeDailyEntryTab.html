@@ -73,7 +73,18 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
         },
         sales: {
             total_revenue: '',
-            shawarma_revenue: ''
+            shawarma_revenue: '',
+            cash_sales_qar: '',
+            card_sales_qar: '',
+            delivery_aggregator_1_qar: '',
+            delivery_aggregator_2_qar: '',
+            other_food_revenue: '',
+            beverage_revenue: '',
+            petty_cash_total_qar: '',
+            total_food_cost: '',
+            food_cost_percentage: '',
+            total_orders: '',
+            sales_notes: ''
         },
         notes: ''
     });
@@ -221,7 +232,18 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                                     },
                                     sales: {
                                         total_revenue: data.sales ? String(data.sales.total_revenue || '') : '',
-                                        shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : ''
+                                        shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : '',
+                                        cash_sales_qar: data.sales ? String(data.sales.cash_sales_qar || '') : '',
+                                        card_sales_qar: data.sales ? String(data.sales.card_sales_qar || '') : '',
+                                        delivery_aggregator_1_qar: data.sales ? String(data.sales.delivery_aggregator_1_qar || '') : '',
+                                        delivery_aggregator_2_qar: data.sales ? String(data.sales.delivery_aggregator_2_qar || '') : '',
+                                        other_food_revenue: data.sales ? String(data.sales.other_food_revenue || '') : '',
+                                        beverage_revenue: data.sales ? String(data.sales.beverage_revenue || '') : '',
+                                        petty_cash_total_qar: data.sales ? String(data.sales.petty_cash_total_qar || '') : '',
+                                        total_food_cost: data.sales ? String(data.sales.total_food_cost || '') : '',
+                                        food_cost_percentage: data.sales ? String(data.sales.food_cost_percentage || '') : '',
+                                        total_orders: data.sales ? String(data.sales.total_orders || '') : '',
+                                        sales_notes: data.sales ? String(data.sales.sales_notes || '') : ''
                                     },
                                     rawProteins: {
                                         frozen_chicken_breast_opening: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_opening || '') : '',
@@ -343,7 +365,13 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                 mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
             },
             sales: {
-                total_revenue: '', shawarma_revenue: ''
+                total_revenue: '', shawarma_revenue: '',
+                cash_sales_qar: '', card_sales_qar: '',
+                delivery_aggregator_1_qar: '', delivery_aggregator_2_qar: '',
+                other_food_revenue: '', beverage_revenue: '',
+                petty_cash_total_qar: '', total_food_cost: '',
+                food_cost_percentage: '', total_orders: '',
+                sales_notes: ''
             },
             notes: ''
         });
@@ -385,10 +413,29 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
         setLoading(true);
         
         try {
+            const salesData = { ...formData.sales };
+            const cashSales = parseFloat(salesData.cash_sales_qar) || 0;
+            const cardSales = parseFloat(salesData.card_sales_qar) || 0;
+            const aggregator1 = parseFloat(salesData.delivery_aggregator_1_qar) || 0;
+            const aggregator2 = parseFloat(salesData.delivery_aggregator_2_qar) || 0;
+            const otherFood = parseFloat(salesData.other_food_revenue) || 0;
+            const beverage = parseFloat(salesData.beverage_revenue) || 0;
+            const pettyCash = parseFloat(salesData.petty_cash_total_qar) || 0;
+            const calculatedTotal = cashSales + cardSales + aggregator1 + aggregator2 + otherFood + beverage + pettyCash;
+            const totalFoodCost = parseFloat(salesData.total_food_cost) || 0;
+            const foodCostPercentage = calculatedTotal > 0 ? (totalFoodCost / calculatedTotal) * 100 : 0;
+            if (salesData.total_revenue && Math.abs(calculatedTotal - parseFloat(salesData.total_revenue)) > 0.01) {
+                alert(t('totalRevenueMismatch') || 'Total revenue does not match sum of sales categories');
+                setLoading(false);
+                return;
+            }
+            salesData.total_revenue = calculatedTotal.toFixed(2);
+            salesData.food_cost_percentage = foodCostPercentage.toFixed(1);
+
             const entryData = {
                 date: selectedDate,
                 shawarmaStack: formData.shawarmaStack,
-                sales: formData.sales,
+                sales: salesData,
                 rawProteins: formData.rawProteins,
                 marinatedProteins: formData.marinatedProteins,
                 bread: formData.bread,
@@ -454,7 +501,13 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                 mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
             },
             sales: {
-                total_revenue: '', shawarma_revenue: ''
+                total_revenue: '', shawarma_revenue: '',
+                cash_sales_qar: '', card_sales_qar: '',
+                delivery_aggregator_1_qar: '', delivery_aggregator_2_qar: '',
+                other_food_revenue: '', beverage_revenue: '',
+                petty_cash_total_qar: '', total_food_cost: '',
+                food_cost_percentage: '', total_orders: '',
+                sales_notes: ''
             },
             notes: ''
         });

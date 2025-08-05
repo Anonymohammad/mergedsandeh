@@ -108,7 +108,18 @@ function DailyEntryTab() {
         // Daily Sales (Simple - only 2 fields)
         sales: {
             total_revenue: '',
-            shawarma_revenue: ''
+            shawarma_revenue: '',
+            cash_sales_qar: '',
+            card_sales_qar: '',
+            delivery_aggregator_1_qar: '',
+            delivery_aggregator_2_qar: '',
+            other_food_revenue: '',
+            beverage_revenue: '',
+            petty_cash_total_qar: '',
+            total_food_cost: '',
+            food_cost_percentage: '',
+            total_orders: '',
+            sales_notes: ''
         },
         
         // Notes
@@ -350,8 +361,24 @@ function DailyEntryTab() {
         }
         
         // Sales calculations
-        const totalRevenue = parseFloat(sales.total_revenue) || 0;
-        
+        const cashSales = parseFloat(sales.cash_sales_qar) || 0;
+        const cardSales = parseFloat(sales.card_sales_qar) || 0;
+        const aggregator1 = parseFloat(sales.delivery_aggregator_1_qar) || 0;
+        const aggregator2 = parseFloat(sales.delivery_aggregator_2_qar) || 0;
+        const otherFood = parseFloat(sales.other_food_revenue) || 0;
+        const beverage = parseFloat(sales.beverage_revenue) || 0;
+        const pettyCash = parseFloat(sales.petty_cash_total_qar) || 0;
+        const totalRevenueCalculated = cashSales + cardSales + aggregator1 + aggregator2 + otherFood + beverage + pettyCash;
+        const totalRevenueInput = parseFloat(sales.total_revenue) || 0;
+        const totalFoodCost = parseFloat(sales.total_food_cost) || 0;
+        const foodCostPercentageCalc = totalRevenueCalculated > 0 ? (totalFoodCost / totalRevenueCalculated) * 100 : 0;
+        if (totalRevenueInput && Math.abs(totalRevenueInput - totalRevenueCalculated) > 0.01) {
+            alerts.push({
+                type: 'warning',
+                message: `Total revenue ${totalRevenueInput.toFixed(2)} QAR does not match sum ${totalRevenueCalculated.toFixed(2)} QAR`
+            });
+        }
+
         setCalculatedMetrics({
             shawarma: {
                 lossWeight: lossWeight.toFixed(3),
@@ -361,7 +388,9 @@ function DailyEntryTab() {
                 revenuePerKg: revenuePerKg.toFixed(2)
             },
             sales: {
-                shawarmaPercentage: totalRevenue > 0 ? ((shawarmaRevenue / totalRevenue) * 100).toFixed(1) : '0.0'
+                shawarmaPercentage: totalRevenueCalculated > 0 ? ((shawarmaRevenue / totalRevenueCalculated) * 100).toFixed(1) : '0.0',
+                calculatedTotal: totalRevenueCalculated.toFixed(2),
+                foodCostPercentage: foodCostPercentageCalc.toFixed(1)
             },
             ranges: {
                 lossRange: lossRange,
@@ -485,6 +514,25 @@ function DailyEntryTab() {
                 mayo_received: formData.highCostItems.mayo_received
             };
 
+            const salesData = { ...formData.sales };
+            const cashSales = parseFloat(salesData.cash_sales_qar) || 0;
+            const cardSales = parseFloat(salesData.card_sales_qar) || 0;
+            const aggregator1 = parseFloat(salesData.delivery_aggregator_1_qar) || 0;
+            const aggregator2 = parseFloat(salesData.delivery_aggregator_2_qar) || 0;
+            const otherFood = parseFloat(salesData.other_food_revenue) || 0;
+            const beverage = parseFloat(salesData.beverage_revenue) || 0;
+            const pettyCash = parseFloat(salesData.petty_cash_total_qar) || 0;
+            const calculatedTotal = cashSales + cardSales + aggregator1 + aggregator2 + otherFood + beverage + pettyCash;
+            const totalFoodCost = parseFloat(salesData.total_food_cost) || 0;
+            const foodCostPercentage = calculatedTotal > 0 ? (totalFoodCost / calculatedTotal) * 100 : 0;
+            if (salesData.total_revenue && Math.abs(calculatedTotal - parseFloat(salesData.total_revenue)) > 0.01) {
+                alert('Total revenue does not match sum of sales categories');
+                setLoading(false);
+                return;
+            }
+            salesData.total_revenue = calculatedTotal.toFixed(2);
+            salesData.food_cost_percentage = foodCostPercentage.toFixed(1);
+
             const entryData = {
                 date: selectedDate,
                 shawarmaStack: {
@@ -495,7 +543,7 @@ function DailyEntryTab() {
                     total_waste_weight: calculatedMetrics && calculatedMetrics.shawarma ? calculatedMetrics.shawarma.totalWasteWeight : 0,
                     total_waste_percentage: calculatedMetrics && calculatedMetrics.shawarma ? calculatedMetrics.shawarma.totalWastePercentage : 0
                 },
-                sales: formData.sales,
+                sales: salesData,
                 inventory: inventory,
                 notes: formData.notes,
                 isUpdate: isUpdateMode,
@@ -560,7 +608,13 @@ function DailyEntryTab() {
                 mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
             },
             sales: {
-                total_revenue: '', shawarma_revenue: ''
+                total_revenue: '', shawarma_revenue: '',
+                cash_sales_qar: '', card_sales_qar: '',
+                delivery_aggregator_1_qar: '', delivery_aggregator_2_qar: '',
+                other_food_revenue: '', beverage_revenue: '',
+                petty_cash_total_qar: '', total_food_cost: '',
+                food_cost_percentage: '', total_orders: '',
+                sales_notes: ''
             },
             notes: ''
         });
@@ -609,7 +663,18 @@ function DailyEntryTab() {
                                     },
                                     sales: {
                                         total_revenue: data.sales ? String(data.sales.total_revenue || '') : '',
-                                        shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : ''
+                                        shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : '',
+                                        cash_sales_qar: data.sales ? String(data.sales.cash_sales_qar || '') : '',
+                                        card_sales_qar: data.sales ? String(data.sales.card_sales_qar || '') : '',
+                                        delivery_aggregator_1_qar: data.sales ? String(data.sales.delivery_aggregator_1_qar || '') : '',
+                                        delivery_aggregator_2_qar: data.sales ? String(data.sales.delivery_aggregator_2_qar || '') : '',
+                                        other_food_revenue: data.sales ? String(data.sales.other_food_revenue || '') : '',
+                                        beverage_revenue: data.sales ? String(data.sales.beverage_revenue || '') : '',
+                                        petty_cash_total_qar: data.sales ? String(data.sales.petty_cash_total_qar || '') : '',
+                                        total_food_cost: data.sales ? String(data.sales.total_food_cost || '') : '',
+                                        food_cost_percentage: data.sales ? String(data.sales.food_cost_percentage || '') : '',
+                                        total_orders: data.sales ? String(data.sales.total_orders || '') : '',
+                                        sales_notes: data.sales ? String(data.sales.sales_notes || '') : ''
                                     },
                                     rawProteins: {
                                         frozen_chicken_breast_opening: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_remaining || '') : '',
@@ -740,7 +805,13 @@ function DailyEntryTab() {
                 mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
             },
             sales: {
-                total_revenue: '', shawarma_revenue: ''
+                total_revenue: '', shawarma_revenue: '',
+                cash_sales_qar: '', card_sales_qar: '',
+                delivery_aggregator_1_qar: '', delivery_aggregator_2_qar: '',
+                other_food_revenue: '', beverage_revenue: '',
+                petty_cash_total_qar: '', total_food_cost: '',
+                food_cost_percentage: '', total_orders: '',
+                sales_notes: ''
             },
             notes: ''
         });
@@ -1385,9 +1456,7 @@ function DailyEntryTab() {
                         className: 'grid grid-cols-1 md:grid-cols-2 gap-4'
                     },
                         React.createElement('div', null,
-                            React.createElement('label', {
-                                className: 'block text-sm font-medium mb-1'
-                            }, 'Total Daily Revenue (QAR)'),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Total Daily Revenue (QAR)'),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1398,24 +1467,139 @@ function DailyEntryTab() {
                                 disabled: fieldsLocked
                             })
                         ),
-                        React.createElement('div', null,
-                            React.createElement('label', {
-                                className: 'block text-sm font-medium mb-1'
-                            }, 'Shawarma Revenue (QAR)'),
-                            React.createElement('input', {
-                                type: 'number',
-                                step: '0.01',
-                                value: formData.sales.shawarma_revenue,
-                                onChange: e => handleInputChange('sales', 'shawarma_revenue', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
-                                required: true,
-                                disabled: fieldsLocked
-                            }),
-                            React.createElement('p', {
-                                className: 'text-xs text-gray-500 mt-1'
-                            }, 'Used for shawarma profitability calculations')
-                        )
-                    ),
+        React.createElement('div', null,
+            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Shawarma Revenue (QAR)'),
+            React.createElement('input', {
+                type: 'number',
+                step: '0.01',
+                value: formData.sales.shawarma_revenue,
+                onChange: e => handleInputChange('sales', 'shawarma_revenue', e.target.value),
+                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                required: true,
+                disabled: fieldsLocked
+            }),
+            React.createElement('p', { className: 'text-xs text-gray-500 mt-1' }, 'Used for shawarma profitability calculations')
+        ),
+        React.createElement('div', null,
+            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Cash Sales (QAR)'),
+            React.createElement('input', {
+                type: 'number',
+                step: '0.01',
+                value: formData.sales.cash_sales_qar,
+                onChange: e => handleInputChange('sales', 'cash_sales_qar', e.target.value),
+                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                disabled: fieldsLocked
+            })
+        ),
+        React.createElement('div', null,
+            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Card Sales (QAR)'),
+            React.createElement('input', {
+                type: 'number',
+                step: '0.01',
+                value: formData.sales.card_sales_qar,
+                onChange: e => handleInputChange('sales', 'card_sales_qar', e.target.value),
+                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                disabled: fieldsLocked
+            })
+        ),
+        React.createElement('div', null,
+            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Delivery Aggregator 1 (QAR)'),
+            React.createElement('input', {
+                type: 'number',
+                step: '0.01',
+                value: formData.sales.delivery_aggregator_1_qar,
+                onChange: e => handleInputChange('sales', 'delivery_aggregator_1_qar', e.target.value),
+                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                disabled: fieldsLocked
+            })
+        ),
+        React.createElement('div', null,
+            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Delivery Aggregator 2 (QAR)'),
+            React.createElement('input', {
+                type: 'number',
+                step: '0.01',
+                value: formData.sales.delivery_aggregator_2_qar,
+                onChange: e => handleInputChange('sales', 'delivery_aggregator_2_qar', e.target.value),
+                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                disabled: fieldsLocked
+            })
+        ),
+        React.createElement('div', null,
+            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Other Food Revenue (QAR)'),
+            React.createElement('input', {
+                type: 'number',
+                step: '0.01',
+                value: formData.sales.other_food_revenue,
+                onChange: e => handleInputChange('sales', 'other_food_revenue', e.target.value),
+                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                disabled: fieldsLocked
+            })
+        ),
+        React.createElement('div', null,
+            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Beverage Revenue (QAR)'),
+            React.createElement('input', {
+                type: 'number',
+                step: '0.01',
+                value: formData.sales.beverage_revenue,
+                onChange: e => handleInputChange('sales', 'beverage_revenue', e.target.value),
+                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                disabled: fieldsLocked
+            })
+        ),
+        React.createElement('div', null,
+            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Petty Cash Total (QAR)'),
+            React.createElement('input', {
+                type: 'number',
+                step: '0.01',
+                value: formData.sales.petty_cash_total_qar,
+                onChange: e => handleInputChange('sales', 'petty_cash_total_qar', e.target.value),
+                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                disabled: fieldsLocked
+            })
+        ),
+        React.createElement('div', null,
+            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Total Food Cost (QAR)'),
+            React.createElement('input', {
+                type: 'number',
+                step: '0.01',
+                value: formData.sales.total_food_cost,
+                onChange: e => handleInputChange('sales', 'total_food_cost', e.target.value),
+                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                disabled: fieldsLocked
+            })
+        ),
+        React.createElement('div', null,
+            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Food Cost Percentage'),
+            React.createElement('input', {
+                type: 'number',
+                step: '0.1',
+                value: formData.sales.food_cost_percentage,
+                onChange: e => handleInputChange('sales', 'food_cost_percentage', e.target.value),
+                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                disabled: fieldsLocked
+            })
+        ),
+        React.createElement('div', null,
+            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Total Orders'),
+            React.createElement('input', {
+                type: 'number',
+                value: formData.sales.total_orders,
+                onChange: e => handleInputChange('sales', 'total_orders', e.target.value),
+                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                disabled: fieldsLocked
+            })
+        ),
+        React.createElement('div', { className: 'md:col-span-2' },
+            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Sales Notes'),
+            React.createElement('textarea', {
+                value: formData.sales.sales_notes,
+                onChange: e => handleInputChange('sales', 'sales_notes', e.target.value),
+                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                rows: '2',
+                disabled: fieldsLocked
+            })
+        )
+    ),
                     
                     // Sales Metrics Display
                     calculatedMetrics && calculatedMetrics.sales && React.createElement('div', {
@@ -1428,20 +1612,20 @@ function DailyEntryTab() {
                             className: 'grid grid-cols-2 gap-4 text-sm'
                         },
                             React.createElement('div', null,
-                                React.createElement('span', {
-                                    className: 'text-gray-600'
-                                }, 'Shawarma % of Total:'),
-                                React.createElement('p', {
-                                    className: 'font-medium text-blue-600'
-                                }, calculatedMetrics.sales.shawarmaPercentage + '%')
+                                React.createElement('span', { className: 'text-gray-600' }, 'Shawarma % of Total:'),
+                                React.createElement('p', { className: 'font-medium text-blue-600' }, calculatedMetrics.sales.shawarmaPercentage + '%')
                             ),
                             React.createElement('div', null,
-                                React.createElement('span', {
-                                    className: 'text-gray-600'
-                                }, 'Other Items Revenue:'),
-                                React.createElement('p', {
-                                    className: 'font-medium text-green-600'
-                                }, ((parseFloat(formData.sales.total_revenue) || 0) - (parseFloat(formData.sales.shawarma_revenue) || 0)).toFixed(2) + ' QAR')
+                                React.createElement('span', { className: 'text-gray-600' }, 'Other Items Revenue:'),
+                                React.createElement('p', { className: 'font-medium text-green-600' }, (calculatedMetrics.sales.calculatedTotal - (parseFloat(formData.sales.shawarma_revenue) || 0)).toFixed(2) + ' QAR')
+                            ),
+                            React.createElement('div', null,
+                                React.createElement('span', { className: 'text-gray-600' }, 'Calculated Total Revenue:'),
+                                React.createElement('p', { className: 'font-medium text-blue-600' }, calculatedMetrics.sales.calculatedTotal + ' QAR')
+                            ),
+                            React.createElement('div', null,
+                                React.createElement('span', { className: 'text-gray-600' }, 'Food Cost %:'),
+                                React.createElement('p', { className: 'font-medium text-blue-600' }, calculatedMetrics.sales.foodCostPercentage + '%')
                             )
                         )
                     )
