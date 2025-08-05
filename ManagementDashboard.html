@@ -130,6 +130,23 @@ function ManagementDashboard() {
                         if (parsedData.shawarma) {
                             parsedData.shawarma = computeShawarmaMetrics(parsedData.shawarma);
                         }
+                        if (parsedData.sales) {
+                            const revenueFields = [
+                                'cash_sales_qar',
+                                'card_sales_qar',
+                                'delivery_aggregator_1_qar',
+                                'delivery_aggregator_2_qar',
+                                'other_food_revenue',
+                                'beverage_revenue'
+                            ];
+                            parsedData.sales.total_revenue = revenueFields.reduce((sum, field) =>
+                                sum + (parseFloat(parsedData.sales[field]) || 0), 0);
+                            parsedData.sales.petty_cash_spent = parseFloat(parsedData.sales.petty_cash_spent) || 0;
+                            const totalFoodCost = parseFloat(parsedData.sales.total_food_cost) || 0;
+                            parsedData.sales.food_cost_percentage = parsedData.sales.total_revenue > 0
+                                ? (totalFoodCost / parsedData.sales.total_revenue) * 100
+                                : 0;
+                        }
                         setDashboardData(parsedData);
                         generateAlerts(parsedData);
                         
@@ -293,7 +310,23 @@ function ManagementDashboard() {
         return children;
     };
 
- 
+    const paymentBreakdown = React.useMemo(() => {
+        if (!dashboardData || !dashboardData.sales) return [];
+        const fields = [
+            { key: 'cash_sales_qar', label: 'Cash' },
+            { key: 'card_sales_qar', label: 'Card' },
+            { key: 'delivery_aggregator_1_qar', label: 'Aggregator 1' },
+            { key: 'delivery_aggregator_2_qar', label: 'Aggregator 2' },
+            { key: 'other_food_revenue', label: 'Other Food' },
+            { key: 'beverage_revenue', label: 'Beverages' }
+        ];
+        const total = dashboardData.sales.total_revenue || 0;
+        return fields.map(f => {
+            const value = parseFloat(dashboardData.sales[f.key]) || 0;
+            return { label: f.label, value, percent: total > 0 ? (value / total) * 100 : 0 };
+        });
+    }, [dashboardData]);
+
 
     return (
         <div className="space-y-6">
@@ -367,7 +400,7 @@ function ManagementDashboard() {
             )}
 
             {/* Key Metrics with individual loading */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
                 {/* Shawarma Profitability */}
                 <LoadingCard isLoading={cardLoading.metrics}>
                     <div className="bg-white rounded-lg shadow p-6">
@@ -455,6 +488,22 @@ function ManagementDashboard() {
                         <div className="mt-4 text-sm text-gray-500">
                             Orders: {dashboardData && dashboardData.sales && dashboardData.sales.total_orders ? 
                                 dashboardData.sales.total_orders : 'N/A'}
+                        </div>
+                    </div>
+                </LoadingCard>
+
+                {/* Petty Cash Spent */}
+                <LoadingCard isLoading={cardLoading.metrics}>
+                    <div className="bg-white rounded-lg shadow p-6">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="text-sm font-medium text-gray-600">Petty Cash Spent</p>
+                                <p className="text-2xl font-bold text-purple-600">
+                                    {dashboardData && dashboardData.sales ?
+                                        `${dashboardData.sales.petty_cash_spent.toFixed(2)} QAR` : 'N/A'}
+                                </p>
+                            </div>
+                            <div className="text-3xl">🧾</div>
                         </div>
                     </div>
                 </LoadingCard>
@@ -557,7 +606,7 @@ function ManagementDashboard() {
                                 <div className="grid grid-cols-2 gap-4 text-sm">
                                     <div>
                                         <span className="text-gray-600">Total Revenue:</span>
-                                        <p className="font-medium text-blue-600">{dashboardData.sales.total_revenue ? 
+                                        <p className="font-medium text-blue-600">{dashboardData.sales.total_revenue ?
                                             dashboardData.sales.total_revenue.toFixed(2) : 'N/A'} QAR</p>
                                     </div>
                                     <div>
@@ -586,12 +635,35 @@ function ManagementDashboard() {
                                     <div>
                                         <span className="text-gray-600">Average Order Value:</span>
                                         <p className="font-medium">
-                                            {dashboardData.sales.total_orders && dashboardData.sales.total_revenue && dashboardData.sales.total_orders > 0 ? 
-                                                (dashboardData.sales.total_revenue / dashboardData.sales.total_orders).toFixed(2) : 'N/A'} QAR
-                                        </p>
+                                        {dashboardData.sales.total_orders && dashboardData.sales.total_revenue && dashboardData.sales.total_orders > 0 ?
+                                            (dashboardData.sales.total_revenue / dashboardData.sales.total_orders).toFixed(2) : 'N/A'} QAR
+                                    </p>
+                                </div>
+                            </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t pt-4">
+                                    <div>
+                                        <h4 className="font-medium text-gray-700 mb-2">Payment Channels</h4>
+                                        <div className="space-y-2">
+                                            {paymentBreakdown.map((item, idx) => (
+                                                <div key={idx}>
+                                                    <div className="flex justify-between text-sm">
+                                                        <span className="text-gray-600">{item.label}:</span>
+                                                        <span className="font-medium">{item.value.toFixed(2)} QAR</span>
+                                                    </div>
+                                                    <div className="w-full bg-gray-200 rounded h-2 mt-1">
+                                                        <div className="h-2 rounded bg-olive-600" style={{width: `${item.percent.toFixed(1)}%`}}></div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col justify-center">
+                                        <h4 className="font-medium text-gray-700 mb-2">Petty Cash Spent</h4>
+                                        <p className="text-2xl font-bold text-purple-600">{dashboardData.sales.petty_cash_spent.toFixed(2)} QAR</p>
                                     </div>
                                 </div>
-                                
+
                                 <div className="border-t pt-4">
                                     <h4 className="font-medium text-gray-700 mb-2">Performance Indicators</h4>
                                     <div className="space-y-2">
@@ -609,7 +681,7 @@ function ManagementDashboard() {
                                         <div className="flex justify-between items-center">
                                             <span className="text-sm text-gray-600">Profit Margin:</span>
                                             <span className="text-sm font-medium text-green-600">
-                                                {dashboardData.sales.food_cost_percentage ? 
+                                                {dashboardData.sales.food_cost_percentage ?
                                                     (100 - dashboardData.sales.food_cost_percentage).toFixed(1) : 'N/A'}%
                                             </span>
                                         </div>
