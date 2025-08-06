@@ -1,6 +1,7 @@
 // Unified Restaurant Management System - Code.gs
 // FULLY COMPATIBLE with existing Employee app data structure
 // Based on Employee Code.gs with Management features added
+// Updated to consolidate inventory snapshots and detailed sales with petty cash support
 
 // Database structure definition (EXACT from Employee Code.gs)
 const REQUIRED_SHEETS = {
