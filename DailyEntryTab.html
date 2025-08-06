@@ -29,6 +29,7 @@ function DailyEntryTab() {
   });
 
   React.useEffect(() => {
+    // Fetch daily items from the server when the form loads
     google.script.run
       .withSuccessHandler(res => {
         const items = JSON.parse(res);
@@ -41,6 +42,7 @@ function DailyEntryTab() {
           }, {})
         }));
       })
+      .withFailureHandler(err => console.error('Failed to load items', err))
       .getDailyItems();
   }, []);
 

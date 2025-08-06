@@ -872,8 +872,14 @@ function saveInventorySnapshot(entryData, entryDate, employeeId) {
   }
 }
 
-// Fetch active daily inventory items
+// Fetch active daily inventory items with caching
 function getDailyItems() {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get('dailyItems');
+  if (cached) {
+    return cached;
+  }
+
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName('Item');
@@ -903,7 +909,11 @@ function getDailyItems() {
         });
       }
     }
-    return JSON.stringify(items);
+
+    const json = JSON.stringify(items);
+    // Cache for 5 minutes to reduce sheet reads
+    cache.put('dailyItems', json, 300);
+    return json;
   } catch (err) {
     Logger.log('Error fetching daily items: ' + err.toString());
     return JSON.stringify([]);
