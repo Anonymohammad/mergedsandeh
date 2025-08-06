@@ -17,6 +17,11 @@ function DailyEntryTab() {
     sales: {
       total_revenue: '',
       shawarma_revenue: '',
+      other_food_revenue: '',
+      cash_sales: '',
+      card_sales: '',
+      delivery_aggregator_1: '',
+      delivery_aggregator_2: '',
       petty_cash_total: '',
       pettyCashDetails: []
     },
@@ -38,6 +43,13 @@ function DailyEntryTab() {
       })
       .getDailyItems();
   }, []);
+
+  React.useEffect(() => {
+    setFormData(prev => {
+      const other = (parseFloat(prev.sales.total_revenue) || 0) - (parseFloat(prev.sales.shawarma_revenue) || 0);
+      return { ...prev, sales: { ...prev.sales, other_food_revenue: other.toFixed(2) } };
+    });
+  }, [formData.sales.total_revenue, formData.sales.shawarma_revenue]);
 
   const handleInventoryChange = (id, field, value) => {
     setFormData(prev => ({
@@ -214,6 +226,68 @@ function DailyEntryTab() {
               }))}
               className="w-full p-2 border rounded focus:ring-2 focus:ring-olive-500"
               required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Other Food Revenue (QAR)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={formData.sales.other_food_revenue}
+              readOnly
+              className="w-full p-2 border rounded bg-gray-100"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Cash Sales (QAR)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={formData.sales.cash_sales}
+              onChange={e => setFormData(prev => ({
+                ...prev,
+                sales: { ...prev.sales, cash_sales: e.target.value }
+              }))}
+              className="w-full p-2 border rounded focus:ring-2 focus:ring-olive-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Card Sales (QAR)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={formData.sales.card_sales}
+              onChange={e => setFormData(prev => ({
+                ...prev,
+                sales: { ...prev.sales, card_sales: e.target.value }
+              }))}
+              className="w-full p-2 border rounded focus:ring-2 focus:ring-olive-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Delivery Aggregator 1 (QAR)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={formData.sales.delivery_aggregator_1}
+              onChange={e => setFormData(prev => ({
+                ...prev,
+                sales: { ...prev.sales, delivery_aggregator_1: e.target.value }
+              }))}
+              className="w-full p-2 border rounded focus:ring-2 focus:ring-olive-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Delivery Aggregator 2 (QAR)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={formData.sales.delivery_aggregator_2}
+              onChange={e => setFormData(prev => ({
+                ...prev,
+                sales: { ...prev.sales, delivery_aggregator_2: e.target.value }
+              }))}
+              className="w-full p-2 border rounded focus:ring-2 focus:ring-olive-500"
             />
           </div>
         </div>
