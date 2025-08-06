@@ -1,0 +1,128 @@
+<script type="text/babel">
+function PettyCashModal({ entries = [], onSave, onClose, t }) {
+  const [localEntries, setLocalEntries] = React.useState(
+    entries.length ? entries : [{ category: '', description: '', amount: '', paid_by: '' }]
+  );
+
+  const addEntry = () => {
+    setLocalEntries(prev => [...prev, { category: '', description: '', amount: '', paid_by: '' }]);
+  };
+
+  const updateEntry = (idx, field, value) => {
+    setLocalEntries(prev => {
+      const updated = [...prev];
+      updated[idx] = { ...updated[idx], [field]: value };
+      return updated;
+    });
+  };
+
+  const removeEntry = idx => {
+    setLocalEntries(prev => {
+      const updated = [...prev];
+      updated.splice(idx, 1);
+      return updated;
+    });
+  };
+
+  const total = localEntries.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+
+  const handleSave = () => {
+    if (onSave) {
+      onSave(localEntries, total);
+    }
+    if (onClose) {
+      onClose();
+    }
+  };
+
+  const texts = {
+    pettyCashDetails: t ? t('pettyCashDetails') : 'Petty Cash Details',
+    category: t ? t('category') : 'Category',
+    description: t ? t('description') : 'Description',
+    amount: t ? t('amount') : 'Amount',
+    paidBy: t ? t('paidBy') : 'Paid By',
+    remove: t ? t('remove') : 'Remove',
+    addEntry: t ? t('addEntry') : 'Add Entry',
+    save: t ? t('save') : 'Save',
+    close: t ? t('close') : 'Close',
+    totalLabel: t ? t('total') : 'Total'
+  };
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50">
+      <div className="bg-white p-6 rounded-lg w-full max-w-lg space-y-4">
+        <h3 className="text-lg font-semibold">{texts.pettyCashDetails}</h3>
+        {localEntries.map((entry, idx) => (
+          <div key={idx} className="grid grid-cols-4 gap-2 items-end">
+            <input
+              type="text"
+              placeholder={texts.category}
+              value={entry.category}
+              onChange={e => updateEntry(idx, 'category', e.target.value)}
+              className="border p-1 rounded"
+            />
+            <input
+              type="text"
+              placeholder={texts.description}
+              value={entry.description}
+              onChange={e => updateEntry(idx, 'description', e.target.value)}
+              className="border p-1 rounded"
+            />
+            <input
+              type="number"
+              step="0.01"
+              placeholder={texts.amount}
+              value={entry.amount}
+              onChange={e => updateEntry(idx, 'amount', e.target.value)}
+              className="border p-1 rounded"
+            />
+            <input
+              type="text"
+              placeholder={texts.paidBy}
+              value={entry.paid_by}
+              onChange={e => updateEntry(idx, 'paid_by', e.target.value)}
+              className="border p-1 rounded"
+            />
+            <button
+              type="button"
+              onClick={() => removeEntry(idx)}
+              className="col-span-4 text-red-600 text-xs text-right"
+            >
+              {texts.remove}
+            </button>
+          </div>
+        ))}
+        <div className="flex justify-between items-center">
+          <button
+            type="button"
+            onClick={addEntry}
+            className="bg-green-600 text-white px-3 py-2 rounded"
+          >
+            {texts.addEntry}
+          </button>
+          <div className="font-semibold">
+            {texts.totalLabel}: {total.toFixed(2)}
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={handleSave}
+            className="bg-blue-600 text-white px-3 py-2 rounded"
+          >
+            {texts.save}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="bg-gray-300 px-3 py-2 rounded"
+          >
+            {texts.close}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+window.PettyCashModal = PettyCashModal;
+</script>

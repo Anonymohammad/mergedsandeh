@@ -924,7 +924,6 @@ function getDailyItems() {
 function saveSalesData(entryData, entryDate, employeeId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const salesSheet = ss.getSheetByName('DailySales');
-  const pettySheet = ss.getSheetByName('PettyCashDetail');
   const salesData = entryData.sales || {};
 
   const salesId = Utilities.getUuid();
@@ -938,11 +937,8 @@ function saveSalesData(entryData, entryDate, employeeId) {
   const cardSales = parseFloat(salesData.card_sales) || 0;
   const delivery1 = parseFloat(salesData.delivery_aggregator_1) || 0;
   const delivery2 = parseFloat(salesData.delivery_aggregator_2) || 0;
-  let pettyCashTotal = parseFloat(salesData.petty_cash_total) || 0;
 
-  if (Array.isArray(salesData.pettyCashDetails)) {
-    pettyCashTotal = salesData.pettyCashDetails.reduce((sum, d) => sum + (parseFloat(d.amount) || 0), 0);
-  }
+  const pettyCashTotal = savePettyCash(salesData.pettyCashDetails, salesId, employeeId);
 
   const row = [
     salesId,
@@ -961,25 +957,35 @@ function saveSalesData(entryData, entryDate, employeeId) {
     new Date()
   ];
   salesSheet.appendRow(row);
+}
 
-  if (Array.isArray(salesData.pettyCashDetails) && pettySheet) {
-    const now = new Date();
-    const pettyRows = salesData.pettyCashDetails.map(detail => [
-      Utilities.getUuid(),
-      salesId,
-      detail.category || '',
-      detail.description || '',
-      parseFloat(detail.amount) || 0,
-      detail.paid_by || '',
-      employeeId,
-      now,
-      now
-    ]);
-
-    if (pettyRows.length > 0) {
-      pettySheet.getRange(pettySheet.getLastRow() + 1, 1, pettyRows.length, pettyRows[0].length).setValues(pettyRows);
-    }
+function savePettyCash(pettyDetails, salesId, employeeId) {
+  if (!Array.isArray(pettyDetails) || pettyDetails.length === 0) {
+    return 0;
   }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const pettySheet = ss.getSheetByName('PettyCashDetail');
+  if (!pettySheet) {
+    return 0;
+  }
+
+  const now = new Date();
+  const rows = pettyDetails.map(detail => [
+    Utilities.getUuid(),
+    salesId,
+    detail.category || '',
+    detail.description || '',
+    parseFloat(detail.amount) || 0,
+    detail.paid_by || '',
+    employeeId,
+    now,
+    now
+  ]);
+
+  pettySheet.getRange(pettySheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+
+  return pettyDetails.reduce((sum, d) => sum + (parseFloat(d.amount) || 0), 0);
 }
 
 // NEW: Get all data for management dashboard (enhanced version for management features)
