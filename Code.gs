@@ -918,17 +918,33 @@ function saveSalesData(entryData, entryDate, employeeId) {
   const salesData = entryData.sales || {};
 
   const salesId = Utilities.getUuid();
+
+  const totalRevenue = parseFloat(salesData.total_revenue) || 0;
+  const shawarmaRevenue = parseFloat(salesData.shawarma_revenue) || 0;
+  const otherFoodRevenue = isNaN(parseFloat(salesData.other_food_revenue))
+    ? totalRevenue - shawarmaRevenue
+    : parseFloat(salesData.other_food_revenue);
+  const cashSales = parseFloat(salesData.cash_sales) || 0;
+  const cardSales = parseFloat(salesData.card_sales) || 0;
+  const delivery1 = parseFloat(salesData.delivery_aggregator_1) || 0;
+  const delivery2 = parseFloat(salesData.delivery_aggregator_2) || 0;
+  let pettyCashTotal = parseFloat(salesData.petty_cash_total) || 0;
+
+  if (Array.isArray(salesData.pettyCashDetails)) {
+    pettyCashTotal = salesData.pettyCashDetails.reduce((sum, d) => sum + (parseFloat(d.amount) || 0), 0);
+  }
+
   const row = [
     salesId,
     entryDate,
-    parseFloat(salesData.total_revenue) || 0,
-    parseFloat(salesData.shawarma_revenue) || 0,
-    parseFloat(salesData.other_food_revenue) || 0,
-    parseFloat(salesData.cash_sales) || 0,
-    parseFloat(salesData.card_sales) || 0,
-    parseFloat(salesData.delivery_aggregator_1) || 0,
-    parseFloat(salesData.delivery_aggregator_2) || 0,
-    parseFloat(salesData.petty_cash_total) || 0,
+    totalRevenue,
+    shawarmaRevenue,
+    otherFoodRevenue,
+    cashSales,
+    cardSales,
+    delivery1,
+    delivery2,
+    pettyCashTotal,
     salesData.notes || '',
     employeeId,
     new Date(),
