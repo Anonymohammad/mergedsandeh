@@ -55,27 +55,45 @@ function HomeTab({ onTabChange }) {
         return orderDate.toDateString() === today;
     }) : [];
 
-    const todayRevenue = todayOrders.reduce((sum, order) => sum + (order.total_amount || 0), 0);
-    const averageOrderValue = todayOrders.length > 0 ? todayRevenue / todayOrders.length : 0;
-    
+    const todaySales = (data.dailySales && data.dailySales.find) ? data.dailySales.find(sales =>
+        new Date(sales.sales_date).toDateString() === today
+    ) : null;
+
+    const revenueFields = [
+        { key: 'cash_sales_qar', label: 'Cash' },
+        { key: 'card_sales_qar', label: 'Card' },
+        { key: 'delivery_aggregator_1_qar', label: 'Aggregator 1' },
+        { key: 'delivery_aggregator_2_qar', label: 'Aggregator 2' },
+        { key: 'other_food_revenue', label: 'Other Food' },
+        { key: 'beverage_revenue', label: 'Beverages' }
+    ];
+
+    const todayRevenue = todaySales ? revenueFields.reduce((sum, f) => sum + (parseFloat(todaySales[f.key]) || 0), 0) : 0;
+    const totalFoodCost = todaySales ? parseFloat(todaySales.total_food_cost) || 0 : 0;
+    const foodCostPercentage = todayRevenue > 0 ? (totalFoodCost / todayRevenue) * 100 : 0;
+    const totalOrders = todaySales && todaySales.total_orders ? parseInt(todaySales.total_orders) || 0 : todayOrders.length;
+    const averageOrderValue = totalOrders > 0 ? todayRevenue / totalOrders : 0;
+
+    const paymentBreakdown = revenueFields.map(f => {
+        const value = todaySales ? parseFloat(todaySales[f.key]) || 0 : 0;
+        return { label: f.label, value, percent: todayRevenue > 0 ? (value / todayRevenue) * 100 : 0 };
+    });
+
+    const pettyCash = todaySales ? parseFloat(todaySales.petty_cash_spent) || 0 : 0;
+
     const activeEmployees = (data.employees && data.employees.filter) ? data.employees.filter(emp => emp.active === true).length : 0;
 
-    const lowStockItems = (data.ingredients && data.ingredients.filter) ? data.ingredients.filter(ingredient => 
+    const lowStockItems = (data.ingredients && data.ingredients.filter) ? data.ingredients.filter(ingredient =>
         ingredient.quantity <= ingredient.min_stock
     ).length : 0;
 
-    const pendingOrders = todayOrders.filter(order => 
+    const pendingOrders = todayOrders.filter(order =>
         order.status === 'pending' || order.status === 'in_progress'
     ).length || 0;
 
     // Get today's shawarma data - FIXED: Removed optional chaining
-    const todayShawarma = (data.dailyShawarmaStack && data.dailyShawarmaStack.find) ? data.dailyShawarmaStack.find(stack => 
+    const todayShawarma = (data.dailyShawarmaStack && data.dailyShawarmaStack.find) ? data.dailyShawarmaStack.find(stack =>
         new Date(stack.date).toDateString() === today
-    ) : null;
-
-    // Get today's sales data - FIXED: Removed optional chaining
-    const todaySales = (data.dailySales && data.dailySales.find) ? data.dailySales.find(sales => 
-        new Date(sales.sales_date).toDateString() === today
     ) : null;
 
     return (
@@ -105,7 +123,7 @@ function HomeTab({ onTabChange }) {
                         <div className="flex-1">
                             <p className="text-sm font-medium text-gray-600">Today's Revenue</p>
                             <p className="text-2xl font-bold text-blue-600">{todayRevenue.toFixed(2)} QAR</p>
-                            <p className="text-xs text-gray-500">{todayOrders.length} orders</p>
+                            <p className="text-xs text-gray-500">{totalOrders} orders</p>
                         </div>
                         <div className="text-3xl text-blue-500">💰</div>
                     </div>
@@ -116,9 +134,9 @@ function HomeTab({ onTabChange }) {
                         <div className="flex-1">
                             <p className="text-sm font-medium text-gray-600">Food Cost %</p>
                             <p className={`text-2xl font-bold ${
-                                (todaySales && todaySales.food_cost_percentage > 25) ? 'text-red-600' : 'text-green-600'
+                                foodCostPercentage > 25 ? 'text-red-600' : 'text-green-600'
                             }`}>
-                                {(todaySales && todaySales.food_cost_percentage) ? todaySales.food_cost_percentage.toFixed(1) : 'N/A'}%
+                                {todayRevenue > 0 ? foodCostPercentage.toFixed(1) : 'N/A'}%
                             </p>
                             <p className="text-xs text-gray-500">Target: &lt; 25%</p>
                         </div>
@@ -209,6 +227,34 @@ function HomeTab({ onTabChange }) {
                 </div>
             </div>
 
+            {todaySales && (
+            <div className="bg-white rounded-lg shadow-md p-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Payment Breakdown & Petty Cash</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <h4 className="font-medium text-gray-700 mb-2">Payment Channels</h4>
+                        <div className="space-y-2">
+                            {paymentBreakdown.map((item, index) => (
+                                <div key={index}>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">{item.label}</span>
+                                        <span className="font-medium">{item.value.toFixed(2)} QAR</span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded h-2 mt-1">
+                                        <div className="h-2 rounded bg-olive-600" style={{width: `${item.percent.toFixed(1)}%`}}></div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="flex flex-col justify-center">
+                        <p className="text-sm font-medium text-gray-600">Petty Cash Spent</p>
+                        <p className="text-3xl font-bold text-purple-600">{pettyCash.toFixed(2)} QAR</p>
+                    </div>
+                </div>
+            </div>
+            )}
+
             {/* Quick Actions */}
             <div className="bg-white rounded-lg shadow-md p-6">
                 <h3 className="text-lg font-semibold text-gray-800 mb-4">Quick Actions</h3>
@@ -292,8 +338,8 @@ function HomeTab({ onTabChange }) {
                             <div className="p-3 bg-green-50 rounded-lg">
                                 <p className="font-medium text-green-800">Food Cost Control</p>
                                 <p className="text-sm text-green-600">
-                                    Food Cost: {(todaySales.food_cost_percentage) ? todaySales.food_cost_percentage.toFixed(1) : 'N/A'}% 
-                                    {todaySales.food_cost_percentage < 25 ? ' (Excellent!)' : ' (Monitor)'}
+                                    Food Cost: {todayRevenue > 0 ? foodCostPercentage.toFixed(1) : 'N/A'}%
+                                    {foodCostPercentage < 25 ? ' (Excellent!)' : ' (Monitor)'}
                                 </p>
                             </div>
                         )}
