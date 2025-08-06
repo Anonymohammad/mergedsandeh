@@ -854,40 +854,59 @@ function saveHighCostItemsData(entryData, entryDate, employeeId) {
 function saveInventorySnapshot(entryData, entryDate, employeeId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const snapshotSheet = ss.getSheetByName('SnapshotLog');
-  const itemSheet = ss.getSheetByName('Item');
-  if (!snapshotSheet || !itemSheet) return;
+  if (!snapshotSheet) return;
 
   const inventory = entryData.inventory || {};
-  const itemData = itemSheet.getDataRange().getValues();
-  if (itemData.length < 2) return;
-
-  const headers = itemData[0];
-  const idIndex = headers.indexOf('id');
-  const nameIndex = headers.indexOf('name');
   const now = new Date();
   const rows = [];
 
-  for (let i = 1; i < itemData.length; i++) {
-    const itemRow = itemData[i];
-    const itemId = itemRow[idIndex];
-    const itemName = itemRow[nameIndex];
-
-    let closing = inventory[itemId];
-    if (closing === undefined) {
-      const key = String(itemName).toLowerCase().replace(/\s+/g, '_');
-      if (inventory[key] !== undefined) {
-        closing = inventory[key];
-      }
-    }
-
-    if (closing !== undefined && closing !== '') {
-      const closingQty = parseFloat(closing) || 0;
-      rows.push([Utilities.getUuid(), itemId, entryDate, closingQty, '', employeeId, now, now]);
-    }
-  }
+  Object.keys(inventory).forEach(itemId => {
+    const data = inventory[itemId] || {};
+    const closingQty = parseFloat(data.closing_quantity) || 0;
+    const notes = data.notes || '';
+    rows.push([Utilities.getUuid(), itemId, entryDate, closingQty, notes, employeeId, now, now]);
+  });
 
   if (rows.length > 0) {
     snapshotSheet.getRange(snapshotSheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  }
+}
+
+// Fetch active daily inventory items
+function getDailyItems() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Item');
+    if (!sheet) return JSON.stringify([]);
+    const data = sheet.getDataRange().getValues();
+    if (data.length < 2) return JSON.stringify([]);
+
+    const headers = data[0];
+    const idIndex = headers.indexOf('id');
+    const nameIndex = headers.indexOf('name');
+    const categoryIndex = headers.indexOf('category');
+    const unitIndex = headers.indexOf('unit');
+    const freqIndex = headers.indexOf('frequency');
+    const activeIndex = headers.indexOf('active');
+
+    const items = [];
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const active = String(row[activeIndex]).toLowerCase() !== 'false';
+      const freq = String(row[freqIndex]).toLowerCase();
+      if (active && freq === 'daily') {
+        items.push({
+          id: row[idIndex],
+          name: row[nameIndex],
+          category: row[categoryIndex],
+          unit: row[unitIndex]
+        });
+      }
+    }
+    return JSON.stringify(items);
+  } catch (err) {
+    Logger.log('Error fetching daily items: ' + err.toString());
+    return JSON.stringify([]);
   }
 }
 
