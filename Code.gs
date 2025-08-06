@@ -628,24 +628,9 @@ function saveDailyEntry(entryData) {
       shawarmaSheet.appendRow(row);
     }
     
-    // Save Raw Proteins Data
-    if (entryData.rawProteins) {
-      saveRawProteinsData(entryData, entryDate, employeeId);
-    }
-
-    // Save Marinated Proteins Data
-    if (entryData.marinatedProteins) {
-      saveMarinatedProteinsData(entryData, entryDate, employeeId);
-    }
-
-    // Save Bread Tracking Data
-    if (entryData.bread) {
-      saveBreadData(entryData, entryDate, employeeId);
-    }
-
-    // Save High-Cost Items Data
-    if (entryData.highCostItems) {
-      saveHighCostItemsData(entryData, entryDate, employeeId);
+    // Save inventory snapshot data
+    if (entryData.inventory) {
+      saveInventorySnapshot(entryData, entryDate, employeeId);
     }
 
     // Save Sales Data
@@ -865,24 +850,91 @@ function saveHighCostItemsData(entryData, entryDate, employeeId) {
   highCostSheet.appendRow(row);
 }
 
-// Save Sales Data (EXACT from Employee Code.gs)
+// Save inventory snapshot data to SnapshotLog
+function saveInventorySnapshot(entryData, entryDate, employeeId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const snapshotSheet = ss.getSheetByName('SnapshotLog');
+  const itemSheet = ss.getSheetByName('Item');
+  if (!snapshotSheet || !itemSheet) return;
+
+  const inventory = entryData.inventory || {};
+  const itemData = itemSheet.getDataRange().getValues();
+  if (itemData.length < 2) return;
+
+  const headers = itemData[0];
+  const idIndex = headers.indexOf('id');
+  const nameIndex = headers.indexOf('name');
+  const now = new Date();
+  const rows = [];
+
+  for (let i = 1; i < itemData.length; i++) {
+    const itemRow = itemData[i];
+    const itemId = itemRow[idIndex];
+    const itemName = itemRow[nameIndex];
+
+    let closing = inventory[itemId];
+    if (closing === undefined) {
+      const key = String(itemName).toLowerCase().replace(/\s+/g, '_');
+      if (inventory[key] !== undefined) {
+        closing = inventory[key];
+      }
+    }
+
+    if (closing !== undefined && closing !== '') {
+      const closingQty = parseFloat(closing) || 0;
+      rows.push([Utilities.getUuid(), itemId, entryDate, closingQty, '', employeeId, now, now]);
+    }
+  }
+
+  if (rows.length > 0) {
+    snapshotSheet.getRange(snapshotSheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  }
+}
+
+// Save Sales Data with enhanced fields and petty cash details
 function saveSalesData(entryData, entryDate, employeeId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const salesSheet = ss.getSheetByName('DailySales');
-  const salesData = entryData.sales;
-  
-  const totalRevenue = parseFloat(salesData.total_revenue) || 0;
-  const shawarmaRevenue = parseFloat(salesData.shawarma_revenue) || 0;
-  const estimatedFoodCost = totalRevenue * 0.22;
-  const foodCostPercentage = totalRevenue > 0 ? (estimatedFoodCost / totalRevenue) * 100 : 0;
-  const totalOrders = 0;
-  
+  const pettySheet = ss.getSheetByName('PettyCashDetail');
+  const salesData = entryData.sales || {};
+
+  const salesId = Utilities.getUuid();
   const row = [
-    Utilities.getUuid(), entryDate, totalRevenue, shawarmaRevenue, estimatedFoodCost,
-    foodCostPercentage, totalOrders, employeeId, new Date(), new Date()
+    salesId,
+    entryDate,
+    parseFloat(salesData.total_revenue) || 0,
+    parseFloat(salesData.shawarma_revenue) || 0,
+    parseFloat(salesData.other_food_revenue) || 0,
+    parseFloat(salesData.cash_sales) || 0,
+    parseFloat(salesData.card_sales) || 0,
+    parseFloat(salesData.delivery_aggregator_1) || 0,
+    parseFloat(salesData.delivery_aggregator_2) || 0,
+    parseFloat(salesData.petty_cash_total) || 0,
+    salesData.notes || '',
+    employeeId,
+    new Date(),
+    new Date()
   ];
-  
   salesSheet.appendRow(row);
+
+  if (Array.isArray(salesData.pettyCashDetails) && pettySheet) {
+    const now = new Date();
+    const pettyRows = salesData.pettyCashDetails.map(detail => [
+      Utilities.getUuid(),
+      salesId,
+      detail.category || '',
+      detail.description || '',
+      parseFloat(detail.amount) || 0,
+      detail.paid_by || '',
+      employeeId,
+      now,
+      now
+    ]);
+
+    if (pettyRows.length > 0) {
+      pettySheet.getRange(pettySheet.getLastRow() + 1, 1, pettyRows.length, pettyRows[0].length).setValues(pettyRows);
+    }
+  }
 }
 
 // NEW: Get all data for management dashboard (enhanced version for management features)
