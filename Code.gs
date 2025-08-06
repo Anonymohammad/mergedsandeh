@@ -1,6 +1,7 @@
 // Unified Restaurant Management System - Code.gs
 // FULLY COMPATIBLE with existing Employee app data structure
 // Based on Employee Code.gs with Management features added
+// Updated to consolidate inventory snapshots and detailed sales with petty cash support
 
 // Database structure definition (EXACT from Employee Code.gs)
 const REQUIRED_SHEETS = {
@@ -108,8 +109,9 @@ const REQUIRED_SHEETS = {
   
   DailySales: {
     requiredHeaders: [
-      'id', 'sales_date', 'total_revenue', 'shawarma_revenue', 'total_food_cost', 
-      'food_cost_percentage', 'total_orders', 'employee_id', 'created_at', 'updated_at'
+      'id', 'sales_date', 'total_revenue', 'shawarma_revenue', 'other_food_revenue',
+      'cash_sales', 'card_sales', 'delivery_aggregator_1', 'delivery_aggregator_2',
+      'petty_cash_total', 'notes', 'employee_id', 'created_at', 'updated_at'
     ]
   },
   
@@ -133,6 +135,25 @@ const REQUIRED_SHEETS = {
     requiredHeaders: [
       'id', 'sales_date', 'product_name', 'quantity_sold', 'unit_price', 'total_revenue',
       'unit_cost', 'total_cost', 'profit_margin', 'created_at', 'updated_at'
+    ]
+  },
+
+  Item: {
+    requiredHeaders: [
+      'id', 'name', 'category', 'unit', 'frequency', 'is_prepared',
+      'cost_per_unit', 'min_stock', 'max_stock', 'storage_location', 'active', 'created_at', 'updated_at'
+    ]
+  },
+
+  SnapshotLog: {
+    requiredHeaders: [
+      'id', 'item_id', 'date', 'closing_quantity', 'notes', 'employee_id', 'created_at', 'updated_at'
+    ]
+  },
+
+  PettyCashDetail: {
+    requiredHeaders: [
+      'id', 'daily_sales_id', 'category', 'description', 'amount', 'paid_by', 'employee_id', 'created_at', 'updated_at'
     ]
   },
   
@@ -526,13 +547,16 @@ function deleteExistingEntries(dateString) {
     
     const sheetsToClean = [
       'DailyShawarmaStack',
-      'DailyRawProteins', 
+      'DailyRawProteins',
       'DailyMarinatedProteins',
       'DailyBreadTracking',
       'DailyHighCostItems',
-      'DailySales'
+      'DailySales',
+      'SnapshotLog'
     ];
-    
+
+    const deletedSalesIds = [];
+
     sheetsToClean.forEach(sheetName => {
       const sheet = ss.getSheetByName(sheetName);
       if (!sheet) return;
@@ -548,6 +572,12 @@ function deleteExistingEntries(dateString) {
       const rowsToDelete = [];
       for (let i = data.length - 1; i >= 1; i--) {
         if (data[i][dateIndex] && new Date(data[i][dateIndex]).toDateString() === targetDate) {
+          if (sheetName === 'DailySales') {
+            const idIdx = headers.indexOf('id');
+            if (idIdx !== -1) {
+              deletedSalesIds.push(data[i][idIdx]);
+            }
+          }
           rowsToDelete.push(i + 1);
         }
       }
@@ -556,7 +586,23 @@ function deleteExistingEntries(dateString) {
         sheet.deleteRow(rowIndex);
       });
     });
-    
+
+    if (deletedSalesIds.length > 0) {
+      const pettySheet = ss.getSheetByName('PettyCashDetail');
+      if (pettySheet) {
+        const pData = pettySheet.getDataRange().getValues();
+        const pHeaders = pData[0];
+        const salesIdIdx = pHeaders.indexOf('daily_sales_id');
+        const pRowsToDelete = [];
+        for (let i = pData.length - 1; i >= 1; i--) {
+          if (deletedSalesIds.includes(pData[i][salesIdIdx])) {
+            pRowsToDelete.push(i + 1);
+          }
+        }
+        pRowsToDelete.forEach(r => pettySheet.deleteRow(r));
+      }
+    }
+
   } catch (error) {
     Logger.log('Error deleting existing entries: ' + error.toString());
     throw new Error('Failed to delete existing entries: ' + error.message);
@@ -612,30 +658,13 @@ function saveDailyEntry(entryData) {
       shawarmaSheet.appendRow(row);
     }
     
-    // Save Raw Proteins Data
-    if (entryData.rawProteins) {
-      saveRawProteinsData(entryData, entryDate, employeeId);
-    }
-
-    // Save Marinated Proteins Data
-    if (entryData.marinatedProteins) {
-      saveMarinatedProteinsData(entryData, entryDate, employeeId);
-    }
-
-    // Save Bread Tracking Data
-    if (entryData.bread) {
-      saveBreadData(entryData, entryDate, employeeId);
-    }
-
-    // Save High-Cost Items Data
-    if (entryData.highCostItems) {
-      saveHighCostItemsData(entryData, entryDate, employeeId);
-    }
-
     // Save Sales Data
     if (entryData.sales) {
       saveSalesData(entryData, entryDate, employeeId);
     }
+
+    // Save Inventory Snapshot
+    saveInventorySnapshot(entryData, entryDate, employeeId);
     
     const successMessage = entryData.isUpdate ? 
       `Daily entry for ${entryDate} updated successfully!` : 
@@ -849,24 +878,108 @@ function saveHighCostItemsData(entryData, entryDate, employeeId) {
   highCostSheet.appendRow(row);
 }
 
-// Save Sales Data (EXACT from Employee Code.gs)
+function saveInventorySnapshot(entryData, entryDate, employeeId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const snapshotSheet = ss.getSheetByName('SnapshotLog');
+  const itemSheet = ss.getSheetByName('Item');
+  if (!snapshotSheet || !itemSheet) return;
+
+  const itemData = itemSheet.getDataRange().getValues();
+  if (itemData.length < 2) return;
+  const headers = itemData[0];
+  const idIndex = headers.indexOf('id');
+  const nameIndex = headers.indexOf('name');
+  const itemMap = {};
+  for (let i = 1; i < itemData.length; i++) {
+    const row = itemData[i];
+    const id = row[idIndex];
+    const name = row[nameIndex];
+    if (id && name) {
+      itemMap[String(name).toLowerCase()] = id;
+    }
+  }
+
+  const rows = [];
+  const addSnapshot = (label, qty) => {
+    const itemId = itemMap[label.toLowerCase()];
+    if (!itemId) return;
+    rows.push([Utilities.getUuid(), itemId, entryDate, qty, '', employeeId, new Date(), new Date()]);
+  };
+
+  if (entryData.rawProteins) {
+    const rp = entryData.rawProteins;
+    addSnapshot('Frozen Chicken Breast', parseFloat(rp.frozen_chicken_breast_remaining) || 0);
+    addSnapshot('Chicken Shawarma', parseFloat(rp.chicken_shawarma_remaining) || 0);
+    addSnapshot('Steak', parseFloat(rp.steak_remaining) || 0);
+  }
+
+  if (entryData.marinatedProteins) {
+    const mp = entryData.marinatedProteins;
+    addSnapshot('Fahita Chicken', parseFloat(mp.fahita_chicken_remaining) || 0);
+    addSnapshot('Chicken Sub', parseFloat(mp.chicken_sub_remaining) || 0);
+    addSnapshot('Spicy Strips', parseFloat(mp.spicy_strips_remaining) || 0);
+    addSnapshot('Original Strips', parseFloat(mp.original_strips_remaining) || 0);
+    addSnapshot('Marinated Steak', parseFloat(mp.marinated_steak_remaining) || 0);
+  }
+
+  if (entryData.bread) {
+    const b = entryData.bread;
+    addSnapshot('Saj Bread', parseInt(b.saj_bread_remaining) || 0);
+    addSnapshot('Pita Bread', parseInt(b.pita_bread_remaining) || 0);
+    addSnapshot('Bread Rolls', parseInt(b.bread_rolls_remaining) || 0);
+  }
+
+  if (entryData.highCostItems) {
+    const hc = entryData.highCostItems;
+    addSnapshot('Cream', parseFloat(hc.cream_remaining) || 0);
+    addSnapshot('Mayo', parseFloat(hc.mayo_remaining) || 0);
+  }
+
+  if (rows.length > 0) {
+    snapshotSheet.getRange(snapshotSheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  }
+}
+
+// Save Sales Data with enhanced fields and petty cash details
 function saveSalesData(entryData, entryDate, employeeId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const salesSheet = ss.getSheetByName('DailySales');
-  const salesData = entryData.sales;
-  
+  const pettySheet = ss.getSheetByName('PettyCashDetail');
+  const salesData = entryData.sales || {};
+
   const totalRevenue = parseFloat(salesData.total_revenue) || 0;
   const shawarmaRevenue = parseFloat(salesData.shawarma_revenue) || 0;
-  const estimatedFoodCost = totalRevenue * 0.22;
-  const foodCostPercentage = totalRevenue > 0 ? (estimatedFoodCost / totalRevenue) * 100 : 0;
-  const totalOrders = 0;
-  
+  const otherFoodRevenue = totalRevenue - shawarmaRevenue;
+  const cashSales = parseFloat(salesData.cash_sales) || 0;
+  const cardSales = parseFloat(salesData.card_sales) || 0;
+  const delivery1 = parseFloat(salesData.delivery_aggregator_1) || 0;
+  const delivery2 = parseFloat(salesData.delivery_aggregator_2) || 0;
+  const pettyDetails = salesData.petty_cash_details || [];
+  const pettyCashTotal = pettyDetails.reduce((sum, d) => sum + (parseFloat(d.amount) || 0), 0);
+  const notes = salesData.notes || '';
+
   const row = [
-    Utilities.getUuid(), entryDate, totalRevenue, shawarmaRevenue, estimatedFoodCost,
-    foodCostPercentage, totalOrders, employeeId, new Date(), new Date()
+    Utilities.getUuid(), entryDate, totalRevenue, shawarmaRevenue, otherFoodRevenue, cashSales,
+    cardSales, delivery1, delivery2, pettyCashTotal, notes, employeeId, new Date(), new Date()
   ];
-  
+
   salesSheet.appendRow(row);
+
+  const dailySalesId = row[0];
+  if (pettyDetails.length > 0 && pettySheet) {
+    const pettyRows = pettyDetails.map(detail => [
+      Utilities.getUuid(),
+      dailySalesId,
+      detail.category || '',
+      detail.description || '',
+      parseFloat(detail.amount) || 0,
+      detail.paid_by || '',
+      employeeId,
+      new Date(),
+      new Date()
+    ]);
+    pettySheet.getRange(pettySheet.getLastRow() + 1, 1, pettyRows.length, pettyRows[0].length).setValues(pettyRows);
+  }
 }
 
 // NEW: Get all data for management dashboard (enhanced version for management features)
@@ -888,7 +1001,10 @@ function getData() {
       dailyHighCostItems: getSheetData('DailyHighCostItems'),
       dailyInventoryCount: getSheetData('DailyInventoryCount'),
       dailyProductSales: getSheetData('DailyProductSales'),
-      weeklyInventory: getSheetData('WeeklyInventory')
+      weeklyInventory: getSheetData('WeeklyInventory'),
+      item: getSheetData('Item'),
+      snapshotLog: getSheetData('SnapshotLog'),
+      pettyCashDetail: getSheetData('PettyCashDetail')
     };
     return JSON.stringify(data);
   } catch (error) {
