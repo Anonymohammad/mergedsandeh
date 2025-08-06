@@ -108,8 +108,12 @@ const REQUIRED_SHEETS = {
   
   DailySales: {
     requiredHeaders: [
-      'id', 'sales_date', 'total_revenue', 'shawarma_revenue', 'total_food_cost', 
-      'food_cost_percentage', 'total_orders', 'employee_id', 'created_at', 'updated_at'
+      'id', 'sales_date', 'cash_sales_qar', 'card_sales_qar',
+      'delivery_aggregator_1_qar', 'delivery_aggregator_2_qar',
+      'other_food_revenue', 'beverage_revenue', 'petty_cash_total_qar',
+      'total_revenue', 'shawarma_revenue', 'total_food_cost',
+      'food_cost_percentage', 'total_orders', 'sales_notes',
+      'employee_id', 'created_at', 'updated_at'
     ]
   },
   
@@ -133,6 +137,64 @@ const REQUIRED_SHEETS = {
     requiredHeaders: [
       'id', 'sales_date', 'product_name', 'quantity_sold', 'unit_price', 'total_revenue',
       'unit_cost', 'total_cost', 'profit_margin', 'created_at', 'updated_at'
+    ]
+  },
+
+  Item: {
+    requiredHeaders: [
+      'id', 'name', 'category', 'unit', 'frequency', 'is_prepared',
+      'cost_per_unit', 'min_stock', 'max_stock', 'storage_location',
+      'active', 'created_at', 'updated_at'
+    ]
+  },
+
+  SnapshotLog: {
+    requiredHeaders: [
+      'id', 'item_id', 'date', 'quantity_counted', 'employee_id',
+      'notes', 'created_at', 'updated_at'
+    ]
+  },
+
+  PurchaseLog: {
+    requiredHeaders: [
+      'id', 'item_id', 'brand_id', 'supplier_id', 'quantity_received',
+      'unit_cost', 'total_cost', 'date', 'invoice_number', 'received_by',
+      'employee_id', 'created_at', 'updated_at'
+    ]
+  },
+
+  WasteLog: {
+    requiredHeaders: [
+      'id', 'item_id', 'waste_quantity', 'unit', 'reason',
+      'estimated_cost', 'date', 'logged_by', 'employee_id',
+      'created_at', 'updated_at'
+    ]
+  },
+
+  PreparedBatchLog: {
+    requiredHeaders: [
+      'id', 'prepared_item_id', 'quantity_made', 'unit', 'date',
+      'prepared_by', 'employee_id', 'created_at', 'updated_at'
+    ]
+  },
+
+  ItemRecipe: {
+    requiredHeaders: [
+      'id', 'prepared_item_id', 'ingredient_id', 'quantity_required', 'unit'
+    ]
+  },
+
+  PettyCashDetail: {
+    requiredHeaders: [
+      'id', 'date', 'daily_sales_id', 'category', 'description', 'amount',
+      'paid_by', 'employee_id', 'created_at', 'updated_at'
+    ]
+  },
+
+  Brand: {
+    requiredHeaders: [
+      'id', 'name', 'item_id', 'current_price', 'price_history',
+      'created_at', 'updated_at'
     ]
   },
   
@@ -888,6 +950,14 @@ function getData() {
       dailyHighCostItems: getSheetData('DailyHighCostItems'),
       dailyInventoryCount: getSheetData('DailyInventoryCount'),
       dailyProductSales: getSheetData('DailyProductSales'),
+      items: getSheetData('Item'),
+      snapshotLog: getSheetData('SnapshotLog'),
+      purchaseLog: getSheetData('PurchaseLog'),
+      wasteLog: getSheetData('WasteLog'),
+      preparedBatchLog: getSheetData('PreparedBatchLog'),
+      itemRecipes: getSheetData('ItemRecipe'),
+      pettyCashDetails: getSheetData('PettyCashDetail'),
+      brands: getSheetData('Brand'),
       weeklyInventory: getSheetData('WeeklyInventory')
     };
     return JSON.stringify(data);
