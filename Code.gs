@@ -108,8 +108,9 @@ const REQUIRED_SHEETS = {
   
   DailySales: {
     requiredHeaders: [
-      'id', 'sales_date', 'total_revenue', 'shawarma_revenue', 'total_food_cost', 
-      'food_cost_percentage', 'total_orders', 'employee_id', 'created_at', 'updated_at'
+      'id', 'sales_date', 'total_revenue', 'shawarma_revenue', 'other_food_revenue',
+      'cash_sales_qar', 'card_sales_qar', 'delivery_aggregator_1_qar', 'delivery_aggregator_2_qar',
+      'petty_cash_total_qar', 'sales_notes', 'employee_id', 'created_at', 'updated_at'
     ]
   },
   
@@ -853,19 +854,23 @@ function saveHighCostItemsData(entryData, entryDate, employeeId) {
 function saveSalesData(entryData, entryDate, employeeId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const salesSheet = ss.getSheetByName('DailySales');
-  const salesData = entryData.sales;
-  
-  const totalRevenue = parseFloat(salesData.total_revenue) || 0;
-  const shawarmaRevenue = parseFloat(salesData.shawarma_revenue) || 0;
-  const estimatedFoodCost = totalRevenue * 0.22;
-  const foodCostPercentage = totalRevenue > 0 ? (estimatedFoodCost / totalRevenue) * 100 : 0;
-  const totalOrders = 0;
-  
+  const s = entryData.sales || {};
+
+  const totalRevenue = parseFloat(s.total_revenue) || 0;
+  const shawarmaRevenue = parseFloat(s.shawarma_revenue) || 0;
+  const otherFoodRevenue = parseFloat(s.other_food_revenue) || (totalRevenue - shawarmaRevenue);
+  const cashSales = parseFloat(s.cash_sales_qar) || 0;
+  const cardSales = parseFloat(s.card_sales_qar) || 0;
+  const aggregator1 = parseFloat(s.delivery_aggregator_1_qar) || 0;
+  const aggregator2 = parseFloat(s.delivery_aggregator_2_qar) || 0;
+  const pettyCash = parseFloat(s.petty_cash_total_qar) || 0;
+  const salesNotes = s.sales_notes || '';
+
   const row = [
-    Utilities.getUuid(), entryDate, totalRevenue, shawarmaRevenue, estimatedFoodCost,
-    foodCostPercentage, totalOrders, employeeId, new Date(), new Date()
+    Utilities.getUuid(), entryDate, totalRevenue, shawarmaRevenue, otherFoodRevenue,
+    cashSales, cardSales, aggregator1, aggregator2, pettyCash, salesNotes, employeeId, new Date(), new Date()
   ];
-  
+
   salesSheet.appendRow(row);
 }
 

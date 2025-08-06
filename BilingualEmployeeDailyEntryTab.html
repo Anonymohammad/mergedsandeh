@@ -72,17 +72,14 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
             mayo_remaining: ''
         },
         sales: {
+            total_revenue: '',
             shawarma_revenue: '',
             cash_sales_qar: '',
             card_sales_qar: '',
             delivery_aggregator_1_qar: '',
             delivery_aggregator_2_qar: '',
             other_food_revenue: '',
-            beverage_revenue: '',
             petty_cash_total_qar: '',
-            total_food_cost: '',
-            food_cost_percentage: '',
-            total_orders: '',
             sales_notes: ''
         },
         notes: ''
@@ -230,17 +227,14 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                                         orders_weight: data.shawarma ? String(data.shawarma.orders_weight_kg || '') : ''
                                     },
                                     sales: {
+                                        total_revenue: data.sales ? String(data.sales.total_revenue || '') : '',
                                         shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : '',
                                         cash_sales_qar: data.sales ? String(data.sales.cash_sales_qar || '') : '',
                                         card_sales_qar: data.sales ? String(data.sales.card_sales_qar || '') : '',
                                         delivery_aggregator_1_qar: data.sales ? String(data.sales.delivery_aggregator_1_qar || '') : '',
                                         delivery_aggregator_2_qar: data.sales ? String(data.sales.delivery_aggregator_2_qar || '') : '',
                                         other_food_revenue: data.sales ? String(data.sales.other_food_revenue || '') : '',
-                                        beverage_revenue: data.sales ? String(data.sales.beverage_revenue || '') : '',
                                         petty_cash_total_qar: data.sales ? String(data.sales.petty_cash_total_qar || '') : '',
-                                        total_food_cost: data.sales ? String(data.sales.total_food_cost || '') : '',
-                                        food_cost_percentage: data.sales ? String(data.sales.food_cost_percentage || '') : '',
-                                        total_orders: data.sales ? String(data.sales.total_orders || '') : '',
                                         sales_notes: data.sales ? String(data.sales.sales_notes || '') : ''
                                     },
                                     rawProteins: {
@@ -363,12 +357,12 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                 mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
             },
             sales: {
+                total_revenue: '',
                 shawarma_revenue: '',
                 cash_sales_qar: '', card_sales_qar: '',
                 delivery_aggregator_1_qar: '', delivery_aggregator_2_qar: '',
-                other_food_revenue: '', beverage_revenue: '',
-                petty_cash_total_qar: '', total_food_cost: '',
-                food_cost_percentage: '', total_orders: '',
+                other_food_revenue: '',
+                petty_cash_total_qar: '',
                 sales_notes: ''
             },
             notes: ''
@@ -384,13 +378,21 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
     };
     
     const handleInputChange = (section, field, value) => {
-        setFormData(prev => ({
-            ...prev,
-            [section]: {
+        setFormData(prev => {
+            const updatedSection = {
                 ...prev[section],
                 [field]: value
+            };
+            if (section === 'sales' && (field === 'total_revenue' || field === 'shawarma_revenue')) {
+                const total = parseFloat(field === 'total_revenue' ? value : updatedSection.total_revenue) || 0;
+                const shawarma = parseFloat(field === 'shawarma_revenue' ? value : updatedSection.shawarma_revenue) || 0;
+                updatedSection.other_food_revenue = (total - shawarma >= 0 ? (total - shawarma).toFixed(2) : '0');
             }
-        }));
+            return {
+                ...prev,
+                [section]: updatedSection
+            };
+        });
     };
     
     const handleSubmit = async (e) => {
@@ -412,18 +414,9 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
         
         try {
             const salesData = { ...formData.sales };
-            const cashSales = parseFloat(salesData.cash_sales_qar) || 0;
-            const cardSales = parseFloat(salesData.card_sales_qar) || 0;
-            const aggregator1 = parseFloat(salesData.delivery_aggregator_1_qar) || 0;
-            const aggregator2 = parseFloat(salesData.delivery_aggregator_2_qar) || 0;
-            const otherFood = parseFloat(salesData.other_food_revenue) || 0;
-            const beverage = parseFloat(salesData.beverage_revenue) || 0;
-            const pettyCash = parseFloat(salesData.petty_cash_total_qar) || 0;
-            const calculatedTotal = cashSales + cardSales + aggregator1 + aggregator2 + otherFood + beverage + pettyCash;
-            const totalFoodCost = parseFloat(salesData.total_food_cost) || 0;
-            const foodCostPercentage = calculatedTotal > 0 ? (totalFoodCost / calculatedTotal) * 100 : 0;
-            salesData.total_revenue = calculatedTotal.toFixed(2);
-            salesData.food_cost_percentage = foodCostPercentage.toFixed(1);
+            const totalRevenue = parseFloat(salesData.total_revenue) || 0;
+            const shawarmaRevenue = parseFloat(salesData.shawarma_revenue) || 0;
+            salesData.other_food_revenue = (totalRevenue - shawarmaRevenue).toFixed(2);
 
             const entryData = {
                 date: selectedDate,
@@ -494,12 +487,12 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                 mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
             },
             sales: {
+                total_revenue: '',
                 shawarma_revenue: '',
                 cash_sales_qar: '', card_sales_qar: '',
                 delivery_aggregator_1_qar: '', delivery_aggregator_2_qar: '',
-                other_food_revenue: '', beverage_revenue: '',
-                petty_cash_total_qar: '', total_food_cost: '',
-                food_cost_percentage: '', total_orders: '',
+                other_food_revenue: '',
+                petty_cash_total_qar: '',
                 sales_notes: ''
             },
             notes: ''
@@ -914,9 +907,19 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                         className: 'grid grid-cols-1 md:grid-cols-2 gap-4'
                     },
                         React.createElement('div', null,
-                            React.createElement('label', {
-                                className: 'block text-sm font-medium mb-1'
-                            }, t('shawarmaRevenue')),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('totalDailyRevenue')),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: formData.sales.total_revenue,
+                                onChange: e => handleInputChange('sales', 'total_revenue', e.target.value),
+                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                required: true,
+                                disabled: fieldsLocked
+                            })
+                        ),
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('shawarmaRevenue')),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -977,20 +980,9 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                                 type: 'number',
                                 step: '0.01',
                                 value: formData.sales.other_food_revenue,
-                                onChange: e => handleInputChange('sales', 'other_food_revenue', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
-                                disabled: fieldsLocked
-                            })
-                        ),
-                        React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('beverageRevenue')),
-                            React.createElement('input', {
-                                type: 'number',
-                                step: '0.01',
-                                value: formData.sales.beverage_revenue,
-                                onChange: e => handleInputChange('sales', 'beverage_revenue', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
-                                disabled: fieldsLocked
+                                readOnly: true,
+                                className: 'w-full p-2 border rounded bg-gray-100' + (fieldsLocked ? ' opacity-50' : ''),
+                                disabled: true
                             })
                         ),
                         React.createElement('div', null,
@@ -1000,38 +992,6 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                                 step: '0.01',
                                 value: formData.sales.petty_cash_total_qar,
                                 onChange: e => handleInputChange('sales', 'petty_cash_total_qar', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
-                                disabled: fieldsLocked
-                            })
-                        ),
-                        React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('totalFoodCost')),
-                            React.createElement('input', {
-                                type: 'number',
-                                step: '0.01',
-                                value: formData.sales.total_food_cost,
-                                onChange: e => handleInputChange('sales', 'total_food_cost', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
-                                disabled: fieldsLocked
-                            })
-                        ),
-                        React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('foodCostPercentage')),
-                            React.createElement('input', {
-                                type: 'number',
-                                step: '0.1',
-                                value: formData.sales.food_cost_percentage,
-                                onChange: e => handleInputChange('sales', 'food_cost_percentage', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
-                                disabled: fieldsLocked
-                            })
-                        ),
-                        React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('totalOrders')),
-                            React.createElement('input', {
-                                type: 'number',
-                                value: formData.sales.total_orders,
-                                onChange: e => handleInputChange('sales', 'total_orders', e.target.value),
                                 className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
                                 disabled: fieldsLocked
                             })
