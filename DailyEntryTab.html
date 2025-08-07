@@ -1,18 +1,23 @@
 
 <script type="text/babel">
-function PettyCashEntryForm({ entry, onChange, onSubmit, onCancel, isEditing, categories }) {
-    return React.createElement('div', { className: 'space-y-2' },
+const normalizeNumberInput = (value) => value.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+
+function PettyCashEntryForm({ entry, onChange, onSubmit, onCancel, isEditing, categories, t }) {
+    return React.createElement('div', { className: 'space-y-2 petty-cash-form' },
         React.createElement('select', {
             value: entry.category,
             onChange: e => onChange({ ...entry, category: e.target.value }),
             className: 'w-full p-2 border rounded'
-        }, categories.map(cat => React.createElement('option', { key: cat, value: cat }, cat))),
+        }, [
+            React.createElement('option', { key: '', value: '' }, t('selectCategory')),
+            ...categories.map(cat => React.createElement('option', { key: cat.key, value: cat.key }, cat.label))
+        ]),
         React.createElement('input', {
             type: 'text',
             value: entry.description,
             onChange: e => onChange({ ...entry, description: e.target.value }),
             className: 'w-full p-2 border rounded',
-            placeholder: 'Description',
+            placeholder: t('description'),
             required: true
         }),
         React.createElement('input', {
@@ -20,9 +25,9 @@ function PettyCashEntryForm({ entry, onChange, onSubmit, onCancel, isEditing, ca
             step: '0.01',
             min: '0.01',
             value: entry.amount,
-            onChange: e => onChange({ ...entry, amount: e.target.value }),
+            onChange: e => onChange({ ...entry, amount: normalizeNumberInput(e.target.value) }),
             className: 'w-full p-2 border rounded',
-            placeholder: 'Amount',
+            placeholder: t('amount'),
             required: true
         }),
         React.createElement('input', {
@@ -30,55 +35,60 @@ function PettyCashEntryForm({ entry, onChange, onSubmit, onCancel, isEditing, ca
             value: entry.paid_by,
             onChange: e => onChange({ ...entry, paid_by: e.target.value }),
             className: 'w-full p-2 border rounded',
-            placeholder: 'Paid By',
+            placeholder: t('paidBy'),
             required: true
         }),
-        React.createElement('div', { className: 'flex space-x-2' },
+        React.createElement('div', { className: 'flex space-x-2 modal-actions' },
             React.createElement('button', {
                 type: 'button',
                 onClick: onSubmit,
                 className: 'bg-olive-600 text-white px-4 py-2 rounded'
-            }, isEditing ? 'Update Entry' : 'Add Entry'),
+            }, isEditing ? t('updateEntry') : t('addEntry')),
             isEditing && React.createElement('button', {
                 type: 'button',
                 onClick: onCancel,
                 className: 'bg-gray-500 text-white px-4 py-2 rounded'
-            }, 'Cancel Edit')
+            }, t('cancelEdit'))
         )
     );
 }
 
-function PettyCashEntriesList({ entries, onEdit, onDelete }) {
+function PettyCashEntriesList({ entries, onEdit, onDelete, categories, t }) {
     const total = entries.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
 
+    const getCategoryLabel = (key) => {
+        const cat = categories.find(c => c.key === key);
+        return cat ? cat.label : key;
+    };
+
     if (entries.length === 0) {
-        return React.createElement('p', { className: 'mt-4 text-sm text-gray-500' }, 'No entries yet');
+        return React.createElement('p', { className: 'mt-4 text-sm text-gray-500' }, t('noPettyCashEntries'));
     }
 
-    return React.createElement('div', { className: 'mt-4' },
+    return React.createElement('div', { className: 'mt-4 petty-cash-table' },
         React.createElement('table', { className: 'min-w-full text-sm border' },
             React.createElement('thead', null,
                 React.createElement('tr', { className: 'bg-gray-100' },
-                    ['Category', 'Description', 'Amount', 'Paid By', 'Actions'].map((h, i) =>
-                        React.createElement('th', { key: i, className: 'px-2 py-1 border text-left' }, h)
+                    [t('category'), t('description'), t('amount'), t('paidBy'), t('actions')].map((h, i) =>
+                        React.createElement('th', { key: i, className: 'px-2 py-1 border text-start' }, h)
                     )
                 )
             ),
             React.createElement('tbody', null,
                 entries.map((e, idx) =>
                     React.createElement('tr', { key: idx },
-                        React.createElement('td', { className: 'border px-2 py-1' }, e.category),
+                        React.createElement('td', { className: 'border px-2 py-1' }, getCategoryLabel(e.category)),
                         React.createElement('td', { className: 'border px-2 py-1' }, e.description),
                         React.createElement('td', { className: 'border px-2 py-1' }, parseFloat(e.amount).toFixed(2)),
                         React.createElement('td', { className: 'border px-2 py-1' }, e.paid_by),
                         React.createElement('td', { className: 'border px-2 py-1 space-x-2' },
-                            React.createElement('button', { type: 'button', onClick: () => onEdit(idx), className: 'text-blue-600' }, 'Edit'),
-                            React.createElement('button', { type: 'button', onClick: () => onDelete(idx), className: 'text-red-600' }, 'Delete')
+                            React.createElement('button', { type: 'button', onClick: () => onEdit(idx), className: 'text-blue-600' }, t('editEntry')),
+                            React.createElement('button', { type: 'button', onClick: () => onDelete(idx), className: 'text-red-600' }, t('deleteEntry'))
                         )
                     )
                 ),
                 React.createElement('tr', { className: 'font-medium bg-gray-50' },
-                    React.createElement('td', { className: 'border px-2 py-1', colSpan: 2 }, 'Total'),
+                    React.createElement('td', { className: 'border px-2 py-1', colSpan: 2 }, t('totalAmount')),
                     React.createElement('td', { className: 'border px-2 py-1' }, total.toFixed(2)),
                     React.createElement('td', { className: 'border px-2 py-1', colSpan: 2 }, '')
                 )
@@ -87,7 +97,7 @@ function PettyCashEntriesList({ entries, onEdit, onDelete }) {
     );
 }
 
-function PettyCashModal({ open, onClose, entries, entry, setEntry, editingIndex, onAdd, onUpdate, onEdit, onDelete, onCancel, categories }) {
+function PettyCashModal({ open, onClose, entries, entry, setEntry, editingIndex, onAdd, onUpdate, onEdit, onDelete, onCancel, categories, t }) {
     React.useEffect(() => {
         const handler = e => {
             if (e.key === 'Escape') onClose();
@@ -102,29 +112,31 @@ function PettyCashModal({ open, onClose, entries, entry, setEntry, editingIndex,
         className: 'fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50',
         onClick: e => { if (e.target === e.currentTarget) onClose(); }
     },
-        React.createElement('div', { className: 'bg-white p-6 rounded w-full max-w-2xl' },
-            React.createElement('h3', { className: 'text-lg font-semibold mb-4' }, 'Manage Petty Cash Entries'),
+        React.createElement('div', { className: 'bg-white p-6 rounded w-full max-w-2xl petty-cash-modal' },
+            React.createElement('h3', { className: 'text-lg font-semibold mb-4' }, t('managePettyCashEntries')),
             React.createElement(PettyCashEntryForm, {
                 entry: entry,
                 onChange: setEntry,
                 onSubmit: editingIndex >= 0 ? onUpdate : onAdd,
                 onCancel: onCancel,
                 isEditing: editingIndex >= 0,
-                categories: categories
+                categories: categories,
+                t: t
             }),
-            React.createElement(PettyCashEntriesList, { entries: entries, onEdit: onEdit, onDelete: onDelete }),
-            React.createElement('div', { className: 'mt-4 text-right' },
+            React.createElement(PettyCashEntriesList, { entries: entries, onEdit: onEdit, onDelete: onDelete, categories: categories, t: t }),
+            React.createElement('div', { className: 'mt-4 text-right modal-actions' },
                 React.createElement('button', {
                     type: 'button',
                     onClick: onClose,
                     className: 'bg-gray-500 text-white px-4 py-2 rounded'
-                }, 'Close')
+                }, t('close'))
             )
         )
     );
 }
 
 function DailyEntryTab() {
+    const { t } = React.useContext(window.LanguageContext);
     const { state, setState } = React.useContext(window.AppContext);
     const [pinError, setPinError] = React.useState(false);
     const [pinAttempted, setPinAttempted] = React.useState(false);
@@ -271,6 +283,23 @@ function DailyEntryTab() {
     });
     const [editingEntryIndex, setEditingEntryIndex] = React.useState(-1);
 
+    const validateTranslations = () => {
+        const requiredKeys = [
+            'pettyCash', 'addPettyCashEntry', 'category', 'description', 'amount', 'paidBy',
+            'cashSales', 'cardSales', 'deliveryAggregator1', 'deliveryAggregator2', 'otherFoodRevenue',
+            'pettyCashTotal', 'selectCategory', 'fieldRequired', 'amountMustBePositive', 'confirmDeleteEntry'
+        ];
+        requiredKeys.forEach(key => {
+            if (!t(key) || t(key) === key) {
+                console.warn(`Missing translation for key: ${key}`);
+            }
+        });
+    };
+
+    React.useEffect(() => {
+        validateTranslations();
+    }, []);
+
     const INVENTORY_CONFIG = {
         rawProteins: {
             titleKey: 'Frozen Raw Proteins',
@@ -308,14 +337,14 @@ function DailyEntryTab() {
     };
 
     const PETTY_CASH_CATEGORIES = [
-        'Fuel',
-        'Ingredients',
-        'Supplies',
-        'Equipment',
-        'Utilities',
-        'Maintenance',
-        'Transportation',
-        'Other'
+        { key: 'fuel', label: 'Fuel' },
+        { key: 'ingredients', label: 'Ingredients' },
+        { key: 'supplies', label: 'Supplies' },
+        { key: 'equipment', label: 'Equipment' },
+        { key: 'utilities', label: 'Utilities' },
+        { key: 'maintenance', label: 'Maintenance' },
+        { key: 'transportation', label: 'Transportation' },
+        { key: 'other', label: 'Other' }
     ];
 
     // NEW: Dynamic range calculation functions
@@ -633,11 +662,12 @@ function DailyEntryTab() {
     };
     
     const handleInputChange = (section, field, value) => {
+        const normalized = normalizeNumberInput(value);
         setFormData(prev => ({
             ...prev,
             [section]: {
                 ...prev[section],
-                [field]: value
+                [field]: normalized
             }
         }));
     };
@@ -654,7 +684,7 @@ function DailyEntryTab() {
         // Validate PIN if updating
         if (isUpdateMode && showPinInput) {
             if (!managementPin || managementPin.trim() === '') {
-                alert('Please enter management PIN');
+                alert(t('enterManagementPin'));
                 return;
             }
         }
@@ -1018,7 +1048,14 @@ function DailyEntryTab() {
 
     const handleAddPettyCashEntry = () => {
         const { category, description, amount, paid_by } = currentPettyCashEntry;
-        if (!category || !description || !amount || !paid_by || parseFloat(amount) <= 0) return;
+        if (!category || !description || !amount || !paid_by) {
+            alert(t('fieldRequired'));
+            return;
+        }
+        if (parseFloat(amount) <= 0) {
+            alert(t('amountMustBePositive'));
+            return;
+        }
         setPettyCashEntries([...pettyCashEntries, { ...currentPettyCashEntry, id: Date.now().toString() }]);
         resetPettyCashForm();
     };
@@ -1037,7 +1074,7 @@ function DailyEntryTab() {
     };
 
     const handleDeletePettyCashEntry = (index) => {
-        if (confirm('Are you sure you want to delete this entry?')) {
+        if (confirm(t('confirmDeleteEntry'))) {
             setPettyCashEntries(pettyCashEntries.filter((_, i) => i !== index));
         }
     };
@@ -1184,7 +1221,8 @@ function DailyEntryTab() {
             onEdit: handleEditPettyCashEntry,
             onDelete: handleDeletePettyCashEntry,
             onCancel: handleCancelPettyCashEdit,
-            categories: PETTY_CASH_CATEGORIES
+            categories: PETTY_CASH_CATEGORIES,
+            t: t
         }),
         React.createElement('div', {
             className: 'bg-white rounded-lg shadow p-6'
@@ -1682,12 +1720,12 @@ function DailyEntryTab() {
                 
                 // Sales Section
                 React.createElement('div', {
-                    className: 'border border-gray-200 rounded-lg p-6'
+                    className: 'border border-gray-200 rounded-lg p-6 sales-breakdown'
                 },
                     React.createElement('h3', {
                         className: 'text-lg font-semibold text-gray-800 mb-4 flex items-center'
                     },
-                        React.createElement('span', null, '💵 Daily Sales'),
+                        React.createElement('span', null, '💵 ' + t('dailySales')),
                         React.createElement('span', {
                             className: 'ml-2 text-sm font-normal text-gray-600'
                         }, '(Includes shawarma revenue for calculations)')
@@ -1698,7 +1736,7 @@ function DailyEntryTab() {
                     },
                         // Total revenue
                         React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Total Daily Revenue (QAR)'),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('totalDailyRevenue')),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1711,7 +1749,7 @@ function DailyEntryTab() {
                         ),
                         // Shawarma revenue
                         React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Shawarma Revenue (QAR)'),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('shawarmaRevenue')),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1725,7 +1763,7 @@ function DailyEntryTab() {
                         ),
                         // Cash sales
                         React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Cash Sales (QAR)'),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('cashSales')),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1737,7 +1775,7 @@ function DailyEntryTab() {
                         ),
                         // Card sales
                         React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Card Sales (QAR)'),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('cardSales')),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1749,7 +1787,7 @@ function DailyEntryTab() {
                         ),
                         // Delivery platform 1
                         React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Delivery Platform 1 (QAR)'),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('deliveryAggregator1')),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1761,7 +1799,7 @@ function DailyEntryTab() {
                         ),
                         // Delivery platform 2
                         React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Delivery Platform 2 (QAR)'),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('deliveryAggregator2')),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1773,7 +1811,7 @@ function DailyEntryTab() {
                         ),
                         // Other food revenue (read-only)
                         React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Other Food Revenue (QAR)'),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('otherFoodRevenue')),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1785,7 +1823,7 @@ function DailyEntryTab() {
                         ),
                         // Petty cash total (read-only)
                         React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Petty Cash Total (QAR)'),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('pettyCashTotal')),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1803,7 +1841,7 @@ function DailyEntryTab() {
                             className: 'bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50',
                             onClick: () => setShowPettyCashModal(true),
                             disabled: fieldsLocked
-                        }, 'Petty Cash: ' + calculatePettyCashTotal().toFixed(2) + ' QAR (' + pettyCashEntries.length + ' entries)')
+                        }, t('pettyCash') + ': ' + calculatePettyCashTotal().toFixed(2) + ' QAR (' + pettyCashEntries.length + ' ' + t('entries') + ')')
                     ),
                     
                     // Sales Metrics Display
