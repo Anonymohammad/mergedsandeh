@@ -34,11 +34,38 @@
             * { -webkit-tap-highlight-color: transparent; }
             input[type="number"] { -webkit-appearance: none; -moz-appearance: textfield; appearance: none; }
             input[type="number"]::-webkit-outer-spin-button,
-            input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-            input, select, textarea { font-size: 16px !important; }
-            button, input, select { touch-action: manipulation; }
-        }
-        input[inputmode="numeric"] { font-variant-numeric: tabular-nums; }
+        input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        input, select, textarea { font-size: 16px !important; }
+        button, input, select { touch-action: manipulation; }
+    }
+    input[inputmode="numeric"] { font-variant-numeric: tabular-nums; }
+
+    /* RTL support for petty cash modal */
+    [dir="rtl"] .petty-cash-modal {
+      text-align: right;
+    }
+
+    [dir="rtl"] .petty-cash-form input,
+    [dir="rtl"] .petty-cash-form select {
+      text-align: right;
+    }
+
+    [dir="rtl"] .petty-cash-table {
+      direction: rtl;
+    }
+
+    /* RTL support for sales section */
+    [dir="rtl"] .sales-breakdown {
+      direction: rtl;
+    }
+
+    [dir="rtl"] .validation-indicator {
+      text-align: right;
+    }
+
+    [dir="rtl"] .modal-actions {
+      flex-direction: row-reverse;
+    }
     </style>
     
     <!-- React -->
@@ -193,6 +220,129 @@
         editEntry: "Edit",
         entries: "entries",
         actions: "Actions",
+
+        // Enhanced Sales Fields
+        salesBreakdown: "Sales Breakdown",
+        salesValidation: "Sales Validation",
+        totalMatches: "Totals match perfectly",
+        smallDiscrepancy: "Small discrepancy detected",
+        largeDiscrepancy: "Large discrepancy - please review",
+        breakdownTotal: "Breakdown Total",
+        difference: "Difference",
+
+        // Sales Analytics
+        cashPercentage: "Cash %",
+        cardPercentage: "Card %",
+        deliveryPercentage: "Delivery %",
+        averageTransaction: "Avg Transaction",
+        paymentMethodBreakdown: "Payment Method Breakdown",
+
+        // Petty Cash Core
+        pettyCashTotal: "Petty Cash Total",
+        noPettyCashEntries: "No petty cash entries yet",
+        pettyCashSummary: "Petty Cash Summary",
+        entryDetails: "Entry Details",
+        saveChanges: "Save Changes",
+        close: "Close",
+
+        // Petty Cash Categories
+        selectCategory: "Select Category",
+        fuelDescription: "Vehicle fuel, delivery costs",
+        ingredientsDescription: "Emergency ingredient purchases",
+        suppliesDescription: "Cleaning materials, disposables",
+        equipmentDescription: "Small equipment, repairs",
+        utilitiesDescription: "Electricity, water, internet",
+        maintenanceDescription: "Equipment maintenance, repairs",
+        transportationDescription: "Transportation costs",
+        otherDescription: "Other miscellaneous expenses",
+
+        // Validation Messages
+        fieldRequired: "This field is required",
+        invalidAmount: "Please enter a valid amount",
+        amountMustBePositive: "Amount must be greater than zero",
+        amountTooLarge: "Amount seems unusually large",
+        descriptionTooShort: "Description must be at least 3 characters",
+        descriptionTooLong: "Description is too long (max 100 characters)",
+        invalidNumber: "Please enter a valid number",
+        categoryRequired: "Please select a category",
+        paidByRequired: "Please specify who paid",
+
+        // Sales Validation
+        totalRevenueMismatch: "Total revenue doesn't match breakdown",
+        negativeRevenue: "Revenue cannot be negative",
+        missingRevenueData: "Please enter total revenue",
+        shawarmaRevenueHigh: "Shawarma revenue exceeds total revenue",
+
+        // Success Messages
+        entryAdded: "Petty cash entry added successfully",
+        entryUpdated: "Petty cash entry updated successfully",
+        entryDeleted: "Petty cash entry deleted successfully",
+        entriesSaved: "All petty cash entries saved successfully",
+
+        // Confirmation Dialogs
+        confirmDeleteAllEntries: "Delete all petty cash entries?",
+        confirmDiscardChanges: "Discard unsaved changes?",
+        confirmOverwriteEntry: "This will overwrite the existing entry. Continue?",
+        confirmResetForm: "Reset form and lose current data?",
+
+        // Dialog Actions
+        confirm: "Confirm",
+        cancel: "Cancel",
+        yes: "Yes",
+        no: "No",
+        delete: "Delete",
+        keep: "Keep",
+        discard: "Discard",
+        save: "Save",
+
+        // Quick Add Templates
+        quickAddTemplates: "Quick Add Templates",
+        commonExpenses: "Common Expenses",
+        deliveryFuel: "Delivery Vehicle Fuel",
+        cleaningSupplies: "Cleaning Supplies",
+        emergencyIngredients: "Emergency Ingredients",
+        equipmentRepair: "Equipment Repair",
+        officeSupplies: "Office Supplies",
+        utilitiesBill: "Utilities Payment",
+
+        // Template Descriptions
+        deliveryFuelDesc: "Fuel for delivery vehicles",
+        cleaningSuppliesDesc: "Cleaning materials and supplies",
+        emergencyIngredientsDesc: "Emergency ingredient purchase",
+        equipmentRepairDesc: "Equipment maintenance or repair",
+        officeSuppliesDesc: "Office supplies and materials",
+        utilitiesBillDesc: "Utility bills payment",
+
+        // Export and Import
+        exportEntries: "Export Entries",
+        importEntries: "Import Entries",
+        exportToText: "Export to Text",
+        exportToExcel: "Export to Excel",
+        copyToClipboard: "Copy to Clipboard",
+        entriesExported: "Entries exported successfully",
+        entriesCopied: "Entries copied to clipboard",
+
+        // Status Messages
+        loading: "Loading...",
+        saving: "Saving...",
+        deleting: "Deleting...",
+        processing: "Processing...",
+        updating: "Updating...",
+        loadingEntries: "Loading petty cash entries...",
+        savingEntries: "Saving petty cash entries...",
+        noDataAvailable: "No data available",
+        dataLoadError: "Error loading data",
+        connectionError: "Connection error",
+        retryAction: "Retry",
+
+        // Information Messages
+        draftSaved: "Draft saved automatically",
+        draftRestored: "Draft restored from previous session",
+        unsavedChanges: "You have unsaved changes",
+        dataOutOfSync: "Data may be out of sync",
+        lastUpdated: "Last updated",
+        autoSaveEnabled: "Auto-save enabled",
+        offlineMode: "Working offline",
         
         // Notes Section
         dailyNotes: "Daily Notes",
@@ -383,6 +533,129 @@
         editEntry: "تعديل",
         entries: "قيود",
         actions: "إجراءات",
+
+        // Enhanced Sales Fields
+        salesBreakdown: "تفصيل المبيعات",
+        salesValidation: "التحقق من المبيعات",
+        totalMatches: "الإجماليات متطابقة تماماً",
+        smallDiscrepancy: "تم اكتشاف تباين صغير",
+        largeDiscrepancy: "تباين كبير - يرجى المراجعة",
+        breakdownTotal: "إجمالي التفصيل",
+        difference: "الفرق",
+
+        // Sales Analytics
+        cashPercentage: "النقد %",
+        cardPercentage: "البطاقات %",
+        deliveryPercentage: "التوصيل %",
+        averageTransaction: "متوسط المعاملة",
+        paymentMethodBreakdown: "تفصيل طرق الدفع",
+
+        // Petty Cash Core
+        pettyCashTotal: "إجمالي المصروفات النثرية",
+        noPettyCashEntries: "لا توجد مصروفات نثرية بعد",
+        pettyCashSummary: "ملخص المصروفات النثرية",
+        entryDetails: "تفاصيل القيد",
+        saveChanges: "حفظ التغييرات",
+        close: "إغلاق",
+
+        // Petty Cash Categories
+        selectCategory: "اختر الفئة",
+        fuelDescription: "وقود المركبات، تكاليف التوصيل",
+        ingredientsDescription: "شراء مكونات طارئة",
+        suppliesDescription: "مواد تنظيف، مستهلكات",
+        equipmentDescription: "معدات صغيرة، إصلاحات",
+        utilitiesDescription: "كهرباء، ماء، إنترنت",
+        maintenanceDescription: "صيانة المعدات، إصلاحات",
+        transportationDescription: "تكاليف النقل",
+        otherDescription: "مصروفات متنوعة أخرى",
+
+        // Validation Messages
+        fieldRequired: "هذا الحقل مطلوب",
+        invalidAmount: "يرجى إدخال مبلغ صحيح",
+        amountMustBePositive: "يجب أن يكون المبلغ أكبر من الصفر",
+        amountTooLarge: "المبلغ يبدو كبيراً بشكل غير عادي",
+        descriptionTooShort: "يجب أن يكون الوصف 3 أحرف على الأقل",
+        descriptionTooLong: "الوصف طويل جداً (الحد الأقصى 100 حرف)",
+        invalidNumber: "يرجى إدخال رقم صحيح",
+        categoryRequired: "يرجى اختيار فئة",
+        paidByRequired: "يرجى تحديد من دفع",
+
+        // Sales Validation
+        totalRevenueMismatch: "إجمالي الإيرادات لا يطابق التفصيل",
+        negativeRevenue: "لا يمكن أن تكون الإيرادات سالبة",
+        missingRevenueData: "يرجى إدخال إجمالي الإيرادات",
+        shawarmaRevenueHigh: "إيرادات الشاورما تتجاوز إجمالي الإيرادات",
+
+        // Success Messages
+        entryAdded: "تم إضافة المصروف النثري بنجاح",
+        entryUpdated: "تم تحديث المصروف النثري بنجاح",
+        entryDeleted: "تم حذف المصروف النثري بنجاح",
+        entriesSaved: "تم حفظ جميع المصروفات النثرية بنجاح",
+
+        // Confirmation Dialogs
+        confirmDeleteAllEntries: "حذف جميع المصروفات النثرية؟",
+        confirmDiscardChanges: "تجاهل التغييرات غير المحفوظة؟",
+        confirmOverwriteEntry: "سيتم استبدال القيد الموجود. متابعة؟",
+        confirmResetForm: "إعادة تعيين النموذج وفقدان البيانات الحالية؟",
+
+        // Dialog Actions
+        confirm: "تأكيد",
+        cancel: "إلغاء",
+        yes: "نعم",
+        no: "لا",
+        delete: "حذف",
+        keep: "إبقاء",
+        discard: "تجاهل",
+        save: "حفظ",
+
+        // Quick Add Templates
+        quickAddTemplates: "قوالب الإضافة السريعة",
+        commonExpenses: "المصروفات الشائعة",
+        deliveryFuel: "وقود مركبة التوصيل",
+        cleaningSupplies: "مستلزمات التنظيف",
+        emergencyIngredients: "مكونات طارئة",
+        equipmentRepair: "إصلاح المعدات",
+        officeSupplies: "مستلزمات المكتب",
+        utilitiesBill: "فاتورة المرافق",
+
+        // Template Descriptions
+        deliveryFuelDesc: "وقود لمركبات التوصيل",
+        cleaningSuppliesDesc: "مواد ومستلزمات التنظيف",
+        emergencyIngredientsDesc: "شراء مكونات طارئة",
+        equipmentRepairDesc: "صيانة أو إصلاح المعدات",
+        officeSuppliesDesc: "مستلزمات ومواد المكتب",
+        utilitiesBillDesc: "دفع فواتير المرافق",
+
+        // Export and Import
+        exportEntries: "تصدير القيود",
+        importEntries: "استيراد القيود",
+        exportToText: "تصدير إلى نص",
+        exportToExcel: "تصدير إلى إكسل",
+        copyToClipboard: "نسخ إلى الحافظة",
+        entriesExported: "تم تصدير القيود بنجاح",
+        entriesCopied: "تم نسخ القيود إلى الحافظة",
+
+        // Status Messages
+        loading: "جاري التحميل...",
+        saving: "جاري الحفظ...",
+        deleting: "جاري الحذف...",
+        processing: "جاري المعالجة...",
+        updating: "جاري التحديث...",
+        loadingEntries: "جاري تحميل المصروفات النثرية...",
+        savingEntries: "جاري حفظ المصروفات النثرية...",
+        noDataAvailable: "لا توجد بيانات متاحة",
+        dataLoadError: "خطأ في تحميل البيانات",
+        connectionError: "خطأ في الاتصال",
+        retryAction: "إعادة المحاولة",
+
+        // Information Messages
+        draftSaved: "تم حفظ المسودة تلقائياً",
+        draftRestored: "تم استرداد المسودة من الجلسة السابقة",
+        unsavedChanges: "لديك تغييرات غير محفوظة",
+        dataOutOfSync: "قد تكون البيانات غير متزامنة",
+        lastUpdated: "آخر تحديث",
+        autoSaveEnabled: "الحفظ التلقائي مفعل",
+        offlineMode: "العمل دون اتصال",
         
         // Notes Section
         dailyNotes: "ملاحظات يومية",
