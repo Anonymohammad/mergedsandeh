@@ -1,4 +1,65 @@
 <script type="text/babel">
+function PettyCashModal({ open, onClose, entries, setEntries, t }) {
+    const [entry, setEntry] = React.useState({ category: 'Fuel', description: '', amount: '', paidBy: '' });
+
+    const addEntry = () => {
+        if (!entry.description || !entry.amount) return;
+        setEntries([...entries, entry]);
+        setEntry({ category: 'Fuel', description: '', amount: '', paidBy: '' });
+    };
+
+    const deleteEntry = idx => setEntries(entries.filter((_, i) => i !== idx));
+
+    const total = entries.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+
+    if (!open) return null;
+
+    return React.createElement('div', { className: 'fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50' },
+        React.createElement('div', { className: 'bg-white p-6 rounded w-full max-w-md' },
+            React.createElement('h3', { className: 'text-lg font-semibold mb-4' }, t('pettyCash')),
+            React.createElement('div', { className: 'space-y-2' },
+                React.createElement('label', { className: 'block text-sm font-medium' }, t('category')),
+                React.createElement('select', {
+                    value: entry.category,
+                    onChange: e => setEntry({ ...entry, category: e.target.value }),
+                    className: 'w-full p-2 border rounded'
+                }, ['Fuel', 'Ingredients', 'Supplies', 'Equipment', 'Other'].map(cat => React.createElement('option', { key: cat, value: cat }, cat))),
+                React.createElement('label', { className: 'block text-sm font-medium' }, t('description')),
+                React.createElement('input', {
+                    type: 'text',
+                    value: entry.description,
+                    onChange: e => setEntry({ ...entry, description: e.target.value }),
+                    className: 'w-full p-2 border rounded'
+                }),
+                React.createElement('label', { className: 'block text-sm font-medium' }, t('amount')),
+                React.createElement('input', {
+                    type: 'number',
+                    step: '0.01',
+                    value: entry.amount,
+                    onChange: e => setEntry({ ...entry, amount: e.target.value }),
+                    className: 'w-full p-2 border rounded'
+                }),
+                React.createElement('label', { className: 'block text-sm font-medium' }, t('paidBy')),
+                React.createElement('input', {
+                    type: 'text',
+                    value: entry.paidBy,
+                    onChange: e => setEntry({ ...entry, paidBy: e.target.value }),
+                    className: 'w-full p-2 border rounded'
+                }),
+                React.createElement('button', { type: 'button', onClick: addEntry, className: 'bg-olive-600 text-white px-4 py-2 rounded' }, t('addPettyCashEntry'))
+            ),
+            entries.length > 0 && React.createElement('ul', { className: 'mt-4 space-y-2' },
+                entries.map((e, idx) => React.createElement('li', { key: idx, className: 'flex justify-between items-center' },
+                    React.createElement('span', null, `${e.category} - ${e.description}: ${e.amount} QAR`),
+                    React.createElement('button', { type: 'button', onClick: () => deleteEntry(idx), className: 'text-red-600' }, '×')
+                ))
+            ),
+            React.createElement('div', { className: 'mt-4 font-medium' }, t('amount') + ': ' + total.toFixed(2) + ' QAR'),
+            React.createElement('button', { type: 'button', onClick: onClose, className: 'mt-4 bg-gray-500 text-white px-4 py-2 rounded' }, t('close') || 'Close')
+        )
+    );
+}
+
 function BilingualEmployeeDailyEntryTab({ employeeSession }) {
     const { t } = React.useContext(window.LanguageContext);
     
@@ -73,7 +134,13 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
         },
         sales: {
             total_revenue: '',
-            shawarma_revenue: ''
+            shawarma_revenue: '',
+            cash_sales: '',
+            card_sales: '',
+            delivery_aggregator_1: '',
+            delivery_aggregator_2: '',
+            other_food_revenue: '',
+            petty_cash_total: ''
         },
         notes: ''
     });
@@ -90,6 +157,45 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
     const [showLoadExistingPin, setShowLoadExistingPin] = React.useState(false);
     const [loadExistingPin, setLoadExistingPin] = React.useState('');
     const [pinError, setPinError] = React.useState(false);
+
+    const [pettyCashEntries, setPettyCashEntries] = React.useState([]);
+    const [showPettyCashModal, setShowPettyCashModal] = React.useState(false);
+
+    const INVENTORY_CONFIG = {
+        rawProteins: {
+            titleKey: 'frozenRawProteins',
+            items: [
+                { key: 'frozen_chicken_breast', labelKey: 'frozenChickenBreast', item_id: null },
+                { key: 'chicken_shawarma', labelKey: 'chickenShawarma', item_id: null },
+                { key: 'steak', labelKey: 'steak', item_id: null }
+            ]
+        },
+        marinatedProteins: {
+            titleKey: 'marinatedProteins',
+            items: [
+                { key: 'fahita_chicken', labelKey: 'fahitaChicken', item_id: null },
+                { key: 'chicken_sub', labelKey: 'chickenSub', item_id: null },
+                { key: 'spicy_strips', labelKey: 'spicyStrips', item_id: null },
+                { key: 'original_strips', labelKey: 'originalStrips', item_id: null },
+                { key: 'marinated_steak', labelKey: 'marinatedSteak', item_id: null }
+            ]
+        },
+        bread: {
+            titleKey: 'breadItems',
+            items: [
+                { key: 'saj_bread', labelKey: 'sajBread', item_id: null },
+                { key: 'pita_bread', labelKey: 'pitaBread', item_id: null },
+                { key: 'bread_rolls', labelKey: 'breadRolls', item_id: null }
+            ]
+        },
+        highCostItems: {
+            titleKey: 'highCostItems',
+            items: [
+                { key: 'cream', labelKey: 'cream', item_id: null },
+                { key: 'mayo', labelKey: 'mayo', item_id: null }
+            ]
+        }
+    };
     
     React.useEffect(() => {
         if (selectedDate) {
@@ -102,6 +208,29 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
             loadPreviousDayData();
         }
     }, [checkingExistingData, duplicateWarning, selectedDate]);
+
+    const loadItemMappings = () => {
+        try {
+            google.script.run
+                .withSuccessHandler(mappings => {
+                    Object.values(INVENTORY_CONFIG).forEach(section => {
+                        section.items.forEach(item => {
+                            if (mappings[item.key]) {
+                                item.item_id = mappings[item.key];
+                            }
+                        });
+                    });
+                })
+                .withFailureHandler(err => console.error('Error loading item mappings', err))
+                .getAllLegacyKeyMappings();
+        } catch (err) {
+            console.error('Error loading item mappings', err);
+        }
+    };
+
+    React.useEffect(() => {
+        loadItemMappings();
+    }, []);
     
     const checkExistingEntry = async () => {
         setCheckingExistingData(true);
@@ -221,7 +350,13 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                                     },
                                     sales: {
                                         total_revenue: data.sales ? String(data.sales.total_revenue || '') : '',
-                                        shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : ''
+                                        shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : '',
+                                        cash_sales: data.sales ? String(data.sales.cash_sales || '') : '',
+                                        card_sales: data.sales ? String(data.sales.card_sales || '') : '',
+                                        delivery_aggregator_1: data.sales ? String(data.sales.delivery_aggregator_1 || '') : '',
+                                        delivery_aggregator_2: data.sales ? String(data.sales.delivery_aggregator_2 || '') : '',
+                                        other_food_revenue: data.sales ? String(data.sales.other_food_revenue || '') : '',
+                                        petty_cash_total: data.sales ? String(data.sales.petty_cash_total || '') : ''
                                     },
                                     rawProteins: {
                                         frozen_chicken_breast_opening: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_opening || '') : '',
@@ -286,6 +421,7 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                                     },
                                     notes: data.notes || ''
                                 });
+                                setPettyCashEntries(data.pettyCashEntries || []);
                             }
 
                             setFieldsLocked(false);
@@ -343,7 +479,14 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                 mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
             },
             sales: {
-                total_revenue: '', shawarma_revenue: ''
+                total_revenue: '',
+                shawarma_revenue: '',
+                cash_sales: '',
+                card_sales: '',
+                delivery_aggregator_1: '',
+                delivery_aggregator_2: '',
+                other_food_revenue: '',
+                petty_cash_total: ''
             },
             notes: ''
         });
@@ -355,6 +498,7 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
         setLoadExistingPin('');
         setLoadingExistingData(false);
         setPinError(false);
+        setPettyCashEntries([]);
     };
     
     const handleInputChange = (section, field, value) => {
@@ -388,11 +532,16 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
             const entryData = {
                 date: selectedDate,
                 shawarmaStack: formData.shawarmaStack,
-                sales: formData.sales,
+                sales: {
+                    ...formData.sales,
+                    other_food_revenue: calculateOtherFoodRevenue(),
+                    petty_cash_total: calculatePettyCashTotal()
+                },
                 rawProteins: formData.rawProteins,
                 marinatedProteins: formData.marinatedProteins,
                 bread: formData.bread,
                 highCostItems: formData.highCostItems,
+                pettyCashEntries: pettyCashEntries,
                 notes: formData.notes,
                 isUpdate: isUpdateMode,
                 managementPin: isUpdateMode ? managementPin : null,
@@ -454,10 +603,18 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                 mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
             },
             sales: {
-                total_revenue: '', shawarma_revenue: ''
+                total_revenue: '',
+                shawarma_revenue: '',
+                cash_sales: '',
+                card_sales: '',
+                delivery_aggregator_1: '',
+                delivery_aggregator_2: '',
+                other_food_revenue: '',
+                petty_cash_total: ''
             },
             notes: ''
         });
+        setPettyCashEntries([]);
         setIsUpdateMode(false);
     };
     
@@ -465,6 +622,16 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
         setShowPinInput(false);
         setManagementPin('');
         setFieldsLocked(false);
+    };
+
+    const calculateOtherFoodRevenue = () => {
+        const total = parseFloat(formData.sales.total_revenue) || 0;
+        const shawarma = parseFloat(formData.sales.shawarma_revenue) || 0;
+        return total - shawarma;
+    };
+
+    const calculatePettyCashTotal = () => {
+        return pettyCashEntries.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
     };
     
     const renderInventorySection = (titleKey, sectionKey, items, unit) => {
@@ -560,6 +727,13 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
     return React.createElement('div', {
         className: 'max-w-6xl mx-auto space-y-6'
     },
+        React.createElement(PettyCashModal, {
+            open: showPettyCashModal,
+            onClose: () => setShowPettyCashModal(false),
+            entries: pettyCashEntries,
+            setEntries: setPettyCashEntries,
+            t: t
+        }),
         React.createElement('div', {
             className: 'bg-white rounded-lg shadow p-6'
         },
@@ -806,11 +980,12 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                         className: 'text-lg font-semibold text-gray-800 mb-4'
                     }, '🥩 ' + t('rawProteins')),
                     
-                    renderInventorySection('frozenRawProteins', 'rawProteins', [
-                        {key: 'frozen_chicken_breast', labelKey: 'frozenChickenBreast'},
-                        {key: 'chicken_shawarma', labelKey: 'chickenShawarma'},
-                        {key: 'steak', labelKey: 'steak'}
-                    ], 'kg')
+                    renderInventorySection(
+                        INVENTORY_CONFIG.rawProteins.titleKey,
+                        'rawProteins',
+                        INVENTORY_CONFIG.rawProteins.items,
+                        'kg'
+                    )
                 ),
                 
                 React.createElement('div', {
@@ -820,14 +995,12 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                         className: 'text-lg font-semibold text-gray-800 mb-4'
                     }, '🍖 ' + t('marinatedReadyToUse')),
                     
-                    renderInventorySection('marinatedProteins', 'marinatedProteins', [
-                        {key: 'fahita_chicken', labelKey: 'fahitaChicken'},
-                        {key: 'chicken_sub', labelKey: 'chickenSub'},
-                        {key: 'spicy_strips', labelKey: 'spicyStrips'},
-                         {key: 'original_strips', labelKey: 'originalStrips'},
-    // ADD THIS LINE:
-    {key: 'marinated_steak', labelKey: 'marinatedSteak'}
-], 'kg')
+                    renderInventorySection(
+                        INVENTORY_CONFIG.marinatedProteins.titleKey,
+                        'marinatedProteins',
+                        INVENTORY_CONFIG.marinatedProteins.items,
+                        'kg'
+                    )
                 ),
                 
                 React.createElement('div', {
@@ -837,11 +1010,12 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                         className: 'text-lg font-semibold text-gray-800 mb-4'
                     }, '🍞 ' + t('dailyBreadTracking')),
                     
-                    renderInventorySection('breadItems', 'bread', [
-                        {key: 'saj_bread', labelKey: 'sajBread'},
-                        {key: 'pita_bread', labelKey: 'pitaBread'},
-                        {key: 'bread_rolls', labelKey: 'breadRolls'}
-                    ], 'pieces')
+                    renderInventorySection(
+                        INVENTORY_CONFIG.bread.titleKey,
+                        'bread',
+                        INVENTORY_CONFIG.bread.items,
+                        'pieces'
+                    )
                 ),
                 
                 React.createElement('div', {
@@ -851,10 +1025,12 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                         className: 'text-lg font-semibold text-gray-800 mb-4'
                     }, '💰 ' + t('highCostItems')),
                     
-                    renderInventorySection('highCostItems', 'highCostItems', [
-                        {key: 'cream', labelKey: 'cream'},
-                        {key: 'mayo', labelKey: 'mayo'}
-                    ], 'kg')
+                    renderInventorySection(
+                        INVENTORY_CONFIG.highCostItems.titleKey,
+                        'highCostItems',
+                        INVENTORY_CONFIG.highCostItems.items,
+                        'kg'
+                    )
                 ),
                 
                 React.createElement('div', {
@@ -868,9 +1044,7 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                         className: 'grid grid-cols-1 md:grid-cols-2 gap-4'
                     },
                         React.createElement('div', null,
-                            React.createElement('label', {
-                                className: 'block text-sm font-medium mb-1'
-                            }, t('totalDailyRevenue')),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('totalDailyRevenue')),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -882,9 +1056,7 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                             })
                         ),
                         React.createElement('div', null,
-                            React.createElement('label', {
-                                className: 'block text-sm font-medium mb-1'
-                            }, t('shawarmaRevenue')),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('shawarmaRevenue')),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -894,7 +1066,82 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                                 required: true,
                                 disabled: fieldsLocked
                             })
+                        ),
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('cashSales')),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: formData.sales.cash_sales,
+                                onChange: e => handleInputChange('sales', 'cash_sales', e.target.value),
+                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                disabled: fieldsLocked
+                            })
+                        ),
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('cardSales')),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: formData.sales.card_sales,
+                                onChange: e => handleInputChange('sales', 'card_sales', e.target.value),
+                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                disabled: fieldsLocked
+                            })
+                        ),
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('deliveryAggregator1')),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: formData.sales.delivery_aggregator_1,
+                                onChange: e => handleInputChange('sales', 'delivery_aggregator_1', e.target.value),
+                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                disabled: fieldsLocked
+                            })
+                        ),
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('deliveryAggregator2')),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: formData.sales.delivery_aggregator_2,
+                                onChange: e => handleInputChange('sales', 'delivery_aggregator_2', e.target.value),
+                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                disabled: fieldsLocked
+                            })
+                        ),
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('otherFoodRevenue')),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: calculateOtherFoodRevenue().toFixed(2),
+                                readOnly: true,
+                                className: 'w-full p-2 border rounded bg-gray-100',
+                                disabled: true
+                            })
+                        ),
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('pettyCash')),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: calculatePettyCashTotal().toFixed(2),
+                                readOnly: true,
+                                className: 'w-full p-2 border rounded bg-gray-100',
+                                disabled: true
+                            })
                         )
+                    ),
+
+                    React.createElement('div', { className: 'mt-4' },
+                        React.createElement('button', {
+                            type: 'button',
+                            className: 'bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50',
+                            onClick: () => setShowPettyCashModal(true),
+                            disabled: fieldsLocked
+                        }, t('addPettyCashEntry') + ' (' + calculatePettyCashTotal().toFixed(2) + ' QAR)')
                     )
                 ),
                 
