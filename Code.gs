@@ -105,11 +105,35 @@ const REQUIRED_SHEETS = {
       'employee_id', 'created_at', 'updated_at'
     ]
   },
-  
+
+  Item: {
+    requiredHeaders: [
+      'id', 'name', 'category', 'unit', 'frequency', 'is_prepared', 'cost_per_unit',
+      'min_stock', 'max_stock', 'storage_location', 'legacy_key', 'active',
+      'created_at', 'updated_at'
+    ]
+  },
+
+  SnapshotLog: {
+    requiredHeaders: [
+      'id', 'item_id', 'date', 'closing_quantity', 'notes', 'employee_id',
+      'created_at', 'updated_at'
+    ]
+  },
+
+  PettyCashDetail: {
+    requiredHeaders: [
+      'id', 'daily_sales_id', 'category', 'description', 'amount', 'paid_by',
+      'employee_id', 'created_at', 'updated_at'
+    ]
+  },
+
   DailySales: {
     requiredHeaders: [
-      'id', 'sales_date', 'total_revenue', 'shawarma_revenue', 'total_food_cost', 
-      'food_cost_percentage', 'total_orders', 'employee_id', 'created_at', 'updated_at'
+      'id', 'sales_date', 'total_revenue', 'shawarma_revenue', 'other_food_revenue',
+      'cash_sales', 'card_sales', 'delivery_aggregator_1', 'delivery_aggregator_2',
+      'total_food_cost', 'food_cost_percentage', 'total_orders', 'petty_cash_total',
+      'employee_id', 'created_at', 'updated_at'
     ]
   },
   
@@ -164,6 +188,27 @@ function doGet(e) {
 // Include HTML files
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+// Helper functions for validation and error handling
+function isSheetEmpty(sheet) {
+  return !sheet || sheet.getLastRow() <= 1;
+}
+
+function appendRowSafe(sheet, row) {
+  if (!sheet) {
+    throw new Error('Sheet not found');
+  }
+  const expected = sheet.getLastColumn();
+  if (row.length !== expected) {
+    throw new Error('Row length mismatch. Expected ' + expected + ' but got ' + row.length);
+  }
+  sheet.appendRow(row);
+}
+
+function handleInitializationError(sheetName, error) {
+  Logger.log('Error initializing ' + sheetName + ': ' + error.toString());
+  throw new Error('Initialization failed for ' + sheetName + ': ' + error.message);
 }
 
 // Enhanced database initialization (EXACT from Employee Code.gs)
@@ -228,7 +273,9 @@ function initializeDatabase() {
   } else {
     initializeDefaultEmployeeData();
   }
-  
+
+  initializeItemsTable();
+
   return isNewDatabase;
 }
 
@@ -357,6 +404,54 @@ function initializeSystemSettingsIfNeeded() {
     ];
     settingsSheet.appendRow(row);
   });
+}
+
+function initializeItemsTable() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Item');
+
+    if (isSheetEmpty(sheet)) {
+      const now = new Date();
+      const items = [
+        { name: 'Frozen Chicken Breast', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'frozen_chicken_breast', is_prepared: false },
+        { name: 'Chicken Shawarma', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'chicken_shawarma', is_prepared: false },
+        { name: 'Steak', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'steak', is_prepared: false },
+        { name: 'Fahita Chicken', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'fahita_chicken', is_prepared: true },
+        { name: 'Chicken Sub', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'chicken_sub', is_prepared: true },
+        { name: 'Spicy Strips', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'spicy_strips', is_prepared: true },
+        { name: 'Original Strips', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'original_strips', is_prepared: true },
+        { name: 'Marinated Steak', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'marinated_steak', is_prepared: true },
+        { name: 'Saj Bread', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'saj_bread', is_prepared: false },
+        { name: 'Pita Bread', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'pita_bread', is_prepared: false },
+        { name: 'Bread Rolls', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'bread_rolls', is_prepared: false },
+        { name: 'Cream', category: 'High Cost Items', unit: 'kg', frequency: 'daily', legacy_key: 'cream', is_prepared: false },
+        { name: 'Mayo', category: 'High Cost Items', unit: 'kg', frequency: 'daily', legacy_key: 'mayo', is_prepared: false }
+      ];
+
+      items.forEach(function(it) {
+        const row = [
+          Utilities.getUuid(),
+          it.name,
+          it.category,
+          it.unit,
+          it.frequency,
+          it.is_prepared,
+          0,
+          0,
+          0,
+          '',
+          it.legacy_key,
+          true,
+          now,
+          now
+        ];
+        appendRowSafe(sheet, row);
+      });
+    }
+  } catch (error) {
+    handleInitializationError('Item', error);
+  }
 }
 
 // Enhanced employee validation (EXACT from Employee Code.gs)
@@ -526,11 +621,12 @@ function deleteExistingEntries(dateString) {
     
     const sheetsToClean = [
       'DailyShawarmaStack',
-      'DailyRawProteins', 
+      'DailyRawProteins',
       'DailyMarinatedProteins',
       'DailyBreadTracking',
       'DailyHighCostItems',
-      'DailySales'
+      'DailySales',
+      'SnapshotLog'
     ];
     
     sheetsToClean.forEach(sheetName => {
@@ -539,7 +635,7 @@ function deleteExistingEntries(dateString) {
       
       const data = sheet.getDataRange().getValues();
       const headers = data[0];
-      const dateFieldName = sheetName === 'DailyShawarmaStack' ? 'date' : 
+      const dateFieldName = sheetName === 'DailyShawarmaStack' || sheetName === 'SnapshotLog' ? 'date' :
                            sheetName === 'DailySales' ? 'sales_date' : 'count_date';
       const dateIndex = headers.indexOf(dateFieldName);
       
@@ -857,15 +953,22 @@ function saveSalesData(entryData, entryDate, employeeId) {
   
   const totalRevenue = parseFloat(salesData.total_revenue) || 0;
   const shawarmaRevenue = parseFloat(salesData.shawarma_revenue) || 0;
+  const otherFoodRevenue = totalRevenue - shawarmaRevenue;
+  const cashSales = parseFloat(salesData.cash_sales) || 0;
+  const cardSales = parseFloat(salesData.card_sales) || 0;
+  const aggregator1 = parseFloat(salesData.delivery_aggregator_1) || 0;
+  const aggregator2 = parseFloat(salesData.delivery_aggregator_2) || 0;
   const estimatedFoodCost = totalRevenue * 0.22;
   const foodCostPercentage = totalRevenue > 0 ? (estimatedFoodCost / totalRevenue) * 100 : 0;
   const totalOrders = 0;
-  
+  const pettyCashTotal = parseFloat(salesData.petty_cash_total) || 0;
+
   const row = [
-    Utilities.getUuid(), entryDate, totalRevenue, shawarmaRevenue, estimatedFoodCost,
-    foodCostPercentage, totalOrders, employeeId, new Date(), new Date()
+    Utilities.getUuid(), entryDate, totalRevenue, shawarmaRevenue, otherFoodRevenue,
+    cashSales, cardSales, aggregator1, aggregator2, estimatedFoodCost,
+    foodCostPercentage, totalOrders, pettyCashTotal, employeeId, new Date(), new Date()
   ];
-  
+
   salesSheet.appendRow(row);
 }
 
@@ -882,6 +985,9 @@ function getData() {
       suppliers: getSheetData('Suppliers'),
       dailyShawarmaStack: getSheetData('DailyShawarmaStack'),
       dailySales: getSheetData('DailySales'),
+      items: getSheetData('Item'),
+      snapshotLogs: getSheetData('SnapshotLog'),
+      pettyCashDetails: getSheetData('PettyCashDetail'),
       dailyRawProteins: getSheetData('DailyRawProteins'),
       dailyMarinatedProteins: getSheetData('DailyMarinatedProteins'),
       dailyBreadTracking: getSheetData('DailyBreadTracking'),
