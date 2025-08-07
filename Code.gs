@@ -628,7 +628,9 @@ function deleteExistingEntries(dateString) {
       'DailySales',
       'SnapshotLog'
     ];
-    
+
+    const deletedDailySalesIds = [];
+
     sheetsToClean.forEach(sheetName => {
       const sheet = ss.getSheetByName(sheetName);
       if (!sheet) return;
@@ -645,13 +647,37 @@ function deleteExistingEntries(dateString) {
       for (let i = data.length - 1; i >= 1; i--) {
         if (data[i][dateIndex] && new Date(data[i][dateIndex]).toDateString() === targetDate) {
           rowsToDelete.push(i + 1);
+          if (sheetName === 'DailySales') {
+            const idIndex = headers.indexOf('id');
+            if (idIndex !== -1) {
+              deletedDailySalesIds.push(data[i][idIndex]);
+            }
+          }
         }
       }
-      
+
       rowsToDelete.forEach(rowIndex => {
         sheet.deleteRow(rowIndex);
       });
     });
+
+    if (deletedDailySalesIds.length > 0) {
+      const pettySheet = ss.getSheetByName('PettyCashDetail');
+      if (pettySheet) {
+        const pettyData = pettySheet.getDataRange().getValues();
+        const pettyHeaders = pettyData[0];
+        const dailyIdIndex = pettyHeaders.indexOf('daily_sales_id');
+        const pettyRowsToDelete = [];
+        for (let j = pettyData.length - 1; j >= 1; j--) {
+          if (dailyIdIndex !== -1 && deletedDailySalesIds.indexOf(pettyData[j][dailyIdIndex]) !== -1) {
+            pettyRowsToDelete.push(j + 1);
+          }
+        }
+        pettyRowsToDelete.forEach(rowIndex => {
+          pettySheet.deleteRow(rowIndex);
+        });
+      }
+    }
     
   } catch (error) {
     Logger.log('Error deleting existing entries: ' + error.toString());
@@ -728,9 +754,43 @@ function saveDailyEntry(entryData) {
       saveHighCostItemsData(entryData, entryDate, employeeId);
     }
 
-    // Save Sales Data
+    // Save Snapshot Log for inventory
+    const legacyData = {
+      rawProteins: entryData.rawProteins || {},
+      marinatedProteins: entryData.marinatedProteins || {},
+      bread: entryData.bread || {},
+      highCostItems: entryData.highCostItems || {}
+    };
+    const snapshotEntries = mapLegacyInventoryToSnapshotLog(legacyData, employeeId, entryDate);
+    if (snapshotEntries.length > 0) {
+      const snapshotSheet = ss.getSheetByName('SnapshotLog');
+      snapshotEntries.forEach(function(entry) {
+        const row = [
+          entry.id,
+          entry.item_id,
+          entry.date,
+          entry.closing_quantity,
+          entry.notes,
+          entry.employee_id,
+          entry.created_at,
+          entry.updated_at
+        ];
+        snapshotSheet.appendRow(row);
+      });
+    }
+
+    // Save Sales and Petty Cash Data
+    let dailySalesId = null;
+    if (entryData.pettyCashEntries && entryData.pettyCashEntries.length) {
+      const pettyTotal = calculatePettyCashTotal(entryData.pettyCashEntries);
+      entryData.sales = entryData.sales || {};
+      entryData.sales.petty_cash_total = pettyTotal;
+    }
     if (entryData.sales) {
-      saveSalesData(entryData, entryDate, employeeId);
+      dailySalesId = saveSalesData(entryData, entryDate, employeeId);
+    }
+    if (entryData.pettyCashEntries && entryData.pettyCashEntries.length && dailySalesId) {
+      savePettyCashDetails(entryData.pettyCashEntries, dailySalesId, employeeId);
     }
     
     const successMessage = entryData.isUpdate ? 
@@ -745,11 +805,11 @@ function saveDailyEntry(entryData) {
   }
 }
 
-// Generate daily report (EXACT from Employee Code.gs)
+// Generate daily report
 function generateDailyReport(date) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    
+
     let targetDateString;
     if (date) {
       const targetDate = new Date(date + 'T12:00:00');
@@ -757,58 +817,86 @@ function generateDailyReport(date) {
     } else {
       targetDateString = new Date().toDateString();
     }
-    
+
     const shawarmaData = getSheetData('DailyShawarmaStack');
     const salesData = getSheetData('DailySales');
-    const rawProteinsData = getSheetData('DailyRawProteins');
-    const marinatedProteinsData = getSheetData('DailyMarinatedProteins');
-    const breadData = getSheetData('DailyBreadTracking');
-    const highCostData = getSheetData('DailyHighCostItems');
-    
-    const todayShawarma = shawarmaData.find(row => {
+    const snapshotData = getSheetData('SnapshotLog');
+
+    const todayShawarma = shawarmaData.find(function(row) {
       if (!row.date) return false;
       return new Date(row.date).toDateString() === targetDateString;
     });
-    
-    const todaySales = salesData.find(row => {
+
+    const todaySales = salesData.find(function(row) {
       if (!row.sales_date) return false;
       return new Date(row.sales_date).toDateString() === targetDateString;
     });
-    
-    const todayRawProteins = rawProteinsData.find(row => {
-      if (!row.count_date) return false;
-      return new Date(row.count_date).toDateString() === targetDateString;
+
+    let pettyCashEntries = [];
+    if (todaySales) {
+      pettyCashEntries = getPettyCashDetails(todaySales.id);
+      todaySales.other_food_revenue = (parseFloat(todaySales.total_revenue) || 0) - (parseFloat(todaySales.shawarma_revenue) || 0);
+      todaySales.petty_cash_total = calculatePettyCashTotal(pettyCashEntries);
+    }
+
+    const todaySnapshot = snapshotData.filter(function(row) {
+      if (!row.date) return false;
+      return new Date(row.date).toDateString() === targetDateString;
     });
-    
-    const todayMarinatedProteins = marinatedProteinsData.find(row => {
-      if (!row.count_date) return false;
-      return new Date(row.count_date).toDateString() === targetDateString;
-    });
-    
-    const todayBread = breadData.find(row => {
-      if (!row.count_date) return false;
-      return new Date(row.count_date).toDateString() === targetDateString;
-    });
-    
-    const todayHighCost = highCostData.find(row => {
-      if (!row.count_date) return false;
-      return new Date(row.count_date).toDateString() === targetDateString;
-    });
-    
+
+    let rawProteins = null;
+    let marinatedProteins = null;
+    let bread = null;
+    let highCostItems = null;
+
+    if (todaySnapshot.length > 0) {
+      const legacy = mapSnapshotLogToLegacyFormat(todaySnapshot);
+      rawProteins = legacy.rawProteins;
+      marinatedProteins = legacy.marinatedProteins;
+      bread = legacy.bread;
+      highCostItems = legacy.highCostItems;
+    } else {
+      const rawProteinsData = getSheetData('DailyRawProteins');
+      const marinatedProteinsData = getSheetData('DailyMarinatedProteins');
+      const breadData = getSheetData('DailyBreadTracking');
+      const highCostData = getSheetData('DailyHighCostItems');
+
+      rawProteins = rawProteinsData.find(function(row) {
+        if (!row.count_date) return false;
+        return new Date(row.count_date).toDateString() === targetDateString;
+      }) || null;
+
+      marinatedProteins = marinatedProteinsData.find(function(row) {
+        if (!row.count_date) return false;
+        return new Date(row.count_date).toDateString() === targetDateString;
+      }) || null;
+
+      bread = breadData.find(function(row) {
+        if (!row.count_date) return false;
+        return new Date(row.count_date).toDateString() === targetDateString;
+      }) || null;
+
+      highCostItems = highCostData.find(function(row) {
+        if (!row.count_date) return false;
+        return new Date(row.count_date).toDateString() === targetDateString;
+      }) || null;
+    }
+
     const report = {
       date: targetDateString,
-      dataFound: !!(todayShawarma || todaySales || todayRawProteins || todayBread || todayMarinatedProteins || todayHighCost),
+      dataFound: !!(todayShawarma || todaySales || rawProteins || bread || marinatedProteins || highCostItems),
       shawarma: todayShawarma || null,
       sales: todaySales || null,
-      rawProteins: todayRawProteins || null,
-      marinatedProteins: todayMarinatedProteins || null,
-      bread: todayBread || null,
-      highCostItems: todayHighCost || null,
+      rawProteins: rawProteins,
+      marinatedProteins: marinatedProteins,
+      bread: bread,
+      highCostItems: highCostItems,
+      pettyCashEntries: pettyCashEntries,
       notes: ''
     };
-    
+
     return JSON.stringify(report);
-    
+
   } catch (error) {
     Logger.log('Error generating daily report: ' + error.toString());
     throw new Error('Failed to generate report: ' + error.message);
@@ -963,13 +1051,174 @@ function saveSalesData(entryData, entryDate, employeeId) {
   const totalOrders = 0;
   const pettyCashTotal = parseFloat(salesData.petty_cash_total) || 0;
 
+  const id = Utilities.getUuid();
   const row = [
-    Utilities.getUuid(), entryDate, totalRevenue, shawarmaRevenue, otherFoodRevenue,
+    id, entryDate, totalRevenue, shawarmaRevenue, otherFoodRevenue,
     cashSales, cardSales, aggregator1, aggregator2, estimatedFoodCost,
     foodCostPercentage, totalOrders, pettyCashTotal, employeeId, new Date(), new Date()
   ];
 
   salesSheet.appendRow(row);
+  return id;
+}
+
+// Petty cash management functions
+function savePettyCashDetails(entries, dailySalesId, employeeId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('PettyCashDetail');
+  if (!sheet) {
+    return 0;
+  }
+
+  const existingData = sheet.getDataRange().getValues();
+  const headers = existingData[0];
+  const dailyIdIndex = headers.indexOf('daily_sales_id');
+
+  if (dailySalesId && dailyIdIndex !== -1) {
+    for (let i = existingData.length - 1; i >= 1; i--) {
+      if (existingData[i][dailyIdIndex] === dailySalesId) {
+        sheet.deleteRow(i + 1);
+      }
+    }
+  }
+
+  let total = 0;
+  if (entries && entries.length) {
+    entries.forEach(function(entry) {
+      const amount = parseFloat(entry.amount) || 0;
+      total += amount;
+      const row = [
+        Utilities.getUuid(),
+        dailySalesId,
+        entry.category || '',
+        entry.description || '',
+        amount,
+        entry.paid_by || '',
+        employeeId,
+        new Date(),
+        new Date()
+      ];
+      sheet.appendRow(row);
+    });
+  }
+  return total;
+}
+
+function getPettyCashDetails(dailySalesId) {
+  const entries = [];
+  if (!dailySalesId) {
+    return entries;
+  }
+  const data = getSheetData('PettyCashDetail');
+  for (let i = 0; i < data.length; i++) {
+    if (data[i].daily_sales_id === dailySalesId) {
+      entries.push(data[i]);
+    }
+  }
+  return entries;
+}
+
+function calculatePettyCashTotal(entries) {
+  let total = 0;
+  if (!entries) {
+    return 0;
+  }
+  entries.forEach(function(e) {
+    total += parseFloat(e.amount) || 0;
+  });
+  return total;
+}
+
+// Data migration helpers
+function mapLegacyInventoryToSnapshotLog(legacyData, employeeId, date) {
+  const mappings = getAllLegacyKeyMappings();
+  const entries = [];
+  const categories = ['rawProteins', 'marinatedProteins', 'bread', 'highCostItems'];
+  categories.forEach(function(cat) {
+    const group = legacyData[cat];
+    if (!group) return;
+    for (const key in group) {
+      if (group.hasOwnProperty(key) && /_remaining$/.test(key)) {
+        const legacyKey = key.replace('_remaining', '');
+        const itemId = mappings[legacyKey];
+        if (itemId) {
+          entries.push({
+            id: Utilities.getUuid(),
+            item_id: itemId,
+            date: date,
+            closing_quantity: parseFloat(group[key]) || 0,
+            notes: '',
+            employee_id: employeeId,
+            created_at: new Date(),
+            updated_at: new Date()
+          });
+        }
+      }
+    }
+  });
+  return entries;
+}
+
+function mapSnapshotLogToLegacyFormat(snapshotEntries) {
+  const items = getSheetData('Item');
+  const itemMap = {};
+  items.forEach(function(it) {
+    itemMap[it.id] = it;
+  });
+
+  const legacy = {
+    rawProteins: {},
+    marinatedProteins: {},
+    bread: {},
+    highCostItems: {}
+  };
+
+  snapshotEntries.forEach(function(entry) {
+    const item = itemMap[entry.item_id];
+    if (!item || !item.legacy_key) return;
+    const field = item.legacy_key + '_remaining';
+    const category = item.category;
+    if (category === 'Raw Proteins') {
+      legacy.rawProteins[field] = entry.closing_quantity;
+    } else if (category === 'Marinated Proteins') {
+      legacy.marinatedProteins[field] = entry.closing_quantity;
+    } else if (category === 'Bread') {
+      legacy.bread[field] = entry.closing_quantity;
+    } else if (category === 'High Cost Items') {
+      legacy.highCostItems[field] = entry.closing_quantity;
+    }
+  });
+
+  return legacy;
+}
+
+// Legacy key mapping functions
+function getItemIdByLegacyKey(legacyKey) {
+  const items = getSheetData('Item');
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].legacy_key === legacyKey) {
+      return items[i].id;
+    }
+  }
+  return null;
+}
+
+function getAllLegacyKeyMappings() {
+  const items = getSheetData('Item');
+  const map = {};
+  items.forEach(function(it) {
+    if (it.legacy_key) {
+      map[it.legacy_key] = it.id;
+    }
+  });
+  return map;
+}
+
+function getItemsByCategory(category) {
+  const items = getSheetData('Item');
+  return items.filter(function(it) {
+    return it.category === category;
+  });
 }
 
 // NEW: Get all data for management dashboard (enhanced version for management features)
