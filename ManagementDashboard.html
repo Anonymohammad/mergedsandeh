@@ -98,10 +98,10 @@ function ManagementDashboard() {
 
         try {
             let dateParam = null;
-            
+
             console.log("Selected period:", selectedPeriod);
             console.log("Custom date:", customDate);
-            
+
             const formatISO = (d) => d.toISOString().split('T')[0];
 
             if (selectedPeriod === 'custom' && customDate) {
@@ -113,35 +113,34 @@ function ManagementDashboard() {
                 yesterday.setDate(yesterday.getDate() - 1);
                 dateParam = formatISO(yesterday);
             } else if (selectedPeriod === 'week') {
-                // For week, we'll use today's date but the backend can handle week logic
                 dateParam = formatISO(new Date());
             } else if (selectedPeriod === 'month') {
-                // For month, we'll use today's date but the backend can handle month logic
                 dateParam = formatISO(new Date());
             }
-            
-            console.log("Requesting data for date:", dateParam);
-            
-            const response = await google.script.run
+
+            console.log("Requesting dashboard data for date:", dateParam);
+
+            await google.script.run
                 .withSuccessHandler(data => {
-                    console.log("Received data:", data);
+                    console.log("Received dashboard data:", data);
                     try {
                         const parsedData = JSON.parse(data);
+
                         if (parsedData.shawarma) {
                             parsedData.shawarma = computeShawarmaMetrics(parsedData.shawarma);
                         }
+
+                        if (parsedData.enhanced_analytics) {
+                            parsedData.processed_analytics = processEnhancedAnalytics(parsedData.enhanced_analytics);
+                        }
+
                         setDashboardData(parsedData);
                         generateAlerts(parsedData);
-                        
-                        // Stagger card loading completion for smooth UX
-                        setTimeout(() => setCardLoading(prev => ({ ...prev, metrics: false })), 200);
-                        setTimeout(() => setCardLoading(prev => ({ ...prev, shawarma: false })), 400);
-                        setTimeout(() => setCardLoading(prev => ({ ...prev, sales: false })), 600);
-                        setTimeout(() => setCardLoading(prev => ({ ...prev, inventory: false })), 800);
-                        
+
                         setLoading(false);
+                        setCardLoading({ metrics: false, shawarma: false, sales: false, inventory: false });
                     } catch (parseError) {
-                        console.error('Error parsing data:', parseError);
+                        console.error('Error parsing dashboard data:', parseError);
                         setLoading(false);
                         setCardLoading({ metrics: false, shawarma: false, sales: false, inventory: false });
                     }
@@ -151,7 +150,13 @@ function ManagementDashboard() {
                     setLoading(false);
                     setCardLoading({ metrics: false, shawarma: false, sales: false, inventory: false });
                 })
-                .generateDailyReport(dateParam);
+                .generateDashboardReport(dateParam, {
+                    includeTrends: true,
+                    includeComparisons: selectedPeriod !== 'custom',
+                    includePettyCashAnalysis: true,
+                    includeInventoryAnalysis: true,
+                    compareToYesterday: selectedPeriod === 'today'
+                });
         } catch (error) {
             console.error('Dashboard error:', error);
             setLoading(false);
@@ -159,15 +164,73 @@ function ManagementDashboard() {
         }
     };
 
+    const processEnhancedAnalytics = (analytics) => {
+        const processed = {
+            alerts: [],
+            recommendations: [],
+            insights: []
+        };
+
+        if (analytics.pettyCash) {
+            processed.petty_cash_summary = {
+                total: analytics.pettyCash.total_amount,
+                categories: Object.keys(analytics.pettyCash.categories).length,
+                top_category: analytics.pettyCash.top_category,
+                average: analytics.pettyCash.average_amount
+            };
+
+            analytics.pettyCash.recommendations.forEach(rec => {
+                processed.recommendations.push({
+                    ...rec,
+                    source: 'petty_cash'
+                });
+            });
+        }
+
+        if (analytics.inventory) {
+            processed.inventory_summary = {
+                total_items: analytics.inventory.total_items_tracked,
+                low_stock: analytics.inventory.low_stock_items.length,
+                zero_stock: analytics.inventory.zero_stock_items.length,
+                high_usage: analytics.inventory.high_usage_items.length,
+                total_value: analytics.inventory.inventory_value
+            };
+
+            analytics.inventory.recommendations.forEach(rec => {
+                processed.alerts.push({
+                    ...rec,
+                    source: 'inventory',
+                    type: rec.priority === 'critical' ? 'danger' : rec.priority === 'high' ? 'warning' : 'info'
+                });
+            });
+        }
+
+        if (analytics.sales) {
+            processed.sales_summary = {
+                quality_score: analytics.sales.performance_metrics.revenue_quality_score,
+                payment_diversity: analytics.sales.performance_metrics.payment_method_diversity,
+                variance: analytics.sales.payment_breakdown.variance_from_total,
+                shawarma_percentage: analytics.sales.performance_metrics.shawarma_percentage
+            };
+
+            analytics.sales.recommendations.forEach(rec => {
+                processed.recommendations.push({
+                    ...rec,
+                    source: 'sales'
+                });
+            });
+        }
+
+        return processed;
+    };
+
     const generateAlerts = (data) => {
         const newAlerts = [];
-        
+
         if (data.shawarma) {
             const lossRange = getAcceptableLossRange();
             const wasteRange = getAcceptableTotalWasteRange(data.shawarma.starting_weight_kg || 0);
-
             const remainingRange = getAcceptableRemainingRange(data.shawarma.starting_weight_kg || 0);
-
 
             if (data.shawarma.loss_percentage > lossRange.max) {
                 newAlerts.push({
@@ -196,7 +259,6 @@ function ManagementDashboard() {
                     action: 'Review cutting techniques and order timing'
                 });
             }
-//<<<<<<< 8gof9h-codex/investigate-shawarma-waste-metrics-in-dashboard
 
             if (data.shawarma.remaining_weight_kg > remainingRange.max) {
                 newAlerts.push({
@@ -215,11 +277,8 @@ function ManagementDashboard() {
                     action: 'Check portion sizes'
                 });
             }
-
-//>>>>>>> main
         }
 
-        // Staff meals alert
         if (data.shawarma && data.shawarma.staff_meals_weight_kg > 0.4) {
             newAlerts.push({
                 type: 'warning',
@@ -230,7 +289,6 @@ function ManagementDashboard() {
             });
         }
 
-        // Food cost alerts
         if (data.sales && data.sales.food_cost_percentage > 25) {
             newAlerts.push({
                 type: 'danger',
@@ -241,7 +299,6 @@ function ManagementDashboard() {
             });
         }
 
-        // Profit per kg alerts
         if (data.shawarma && data.shawarma.profit_per_kg < 5) {
             newAlerts.push({
                 type: 'warning',
@@ -250,6 +307,120 @@ function ManagementDashboard() {
                 message: `Profit per kg: ${data.shawarma.profit_per_kg.toFixed(2)} QAR`,
                 action: 'Review pricing and costs'
             });
+        }
+
+        if (data.enhanced_analytics && data.enhanced_analytics.pettyCash) {
+            const pettyCash = data.enhanced_analytics.pettyCash;
+            if (pettyCash.total_amount > 200) {
+                newAlerts.push({
+                    type: 'warning',
+                    icon: '💳',
+                    title: 'High Petty Cash Spending',
+                    message: `${pettyCash.total_amount.toFixed(2)} QAR spent today`,
+                    action: 'Review expense necessity and approval process'
+                });
+            }
+            if (pettyCash.categories['Fuel'] && pettyCash.categories['Fuel'].amount > 100) {
+                newAlerts.push({
+                    type: 'info',
+                    icon: '⛽',
+                    title: 'High Fuel Expenses',
+                    message: `${pettyCash.categories['Fuel'].amount.toFixed(2)} QAR on fuel`,
+                    action: 'Consider delivery route optimization'
+                });
+            }
+            if (pettyCash.entry_count > 8) {
+                newAlerts.push({
+                    type: 'info',
+                    icon: '📝',
+                    title: 'Many Petty Cash Entries',
+                    message: `${pettyCash.entry_count} entries today`,
+                    action: 'Review if some expenses could be planned purchases'
+                });
+            }
+        }
+
+        if (data.processed_analytics && data.processed_analytics.inventory_summary) {
+            const inventory = data.processed_analytics.inventory_summary;
+            if (inventory.zero_stock > 0) {
+                newAlerts.push({
+                    type: 'danger',
+                    icon: '📦',
+                    title: 'Items Out of Stock',
+                    message: `${inventory.zero_stock} items completely out of stock`,
+                    action: 'Immediate restocking required'
+                });
+            }
+            if (inventory.low_stock > 5) {
+                newAlerts.push({
+                    type: 'warning',
+                    icon: '📉',
+                    title: 'Multiple Low Stock Items',
+                    message: `${inventory.low_stock} items below minimum levels`,
+                    action: 'Schedule restocking for low inventory items'
+                });
+            }
+            if (inventory.high_usage > 3) {
+                newAlerts.push({
+                    type: 'info',
+                    icon: '📈',
+                    title: 'High Usage Detected',
+                    message: `${inventory.high_usage} items with unusually high usage`,
+                    action: 'Verify usage accuracy and adjust forecasting'
+                });
+            }
+        }
+
+        if (data.enhanced_analytics && data.enhanced_analytics.sales) {
+            const sales = data.enhanced_analytics.sales;
+            if (sales.performance_metrics.revenue_quality_score < 60) {
+                newAlerts.push({
+                    type: 'warning',
+                    icon: '📊',
+                    title: 'Low Revenue Quality Score',
+                    message: `Quality score: ${sales.performance_metrics.revenue_quality_score.toFixed(0)}/100`,
+                    action: 'Review payment reconciliation and cost controls'
+                });
+            }
+            if (sales.payment_breakdown.variance_from_total > 20) {
+                newAlerts.push({
+                    type: 'danger',
+                    icon: '💰',
+                    title: 'Payment Reconciliation Issue',
+                    message: `${sales.payment_breakdown.variance_from_total.toFixed(2)} QAR discrepancy`,
+                    action: 'Verify payment method totals against actual revenue'
+                });
+            }
+            if (sales.performance_metrics.payment_method_diversity < 30) {
+                newAlerts.push({
+                    type: 'info',
+                    icon: '💳',
+                    title: 'Low Payment Method Diversity',
+                    message: `Only ${sales.performance_metrics.payment_method_diversity.toFixed(0)}% payment diversity`,
+                    action: 'Encourage diverse payment methods for better insights'
+                });
+            }
+        }
+
+        if (data.data_sources) {
+            if (data.data_sources.primary_source === 'old_tables') {
+                newAlerts.push({
+                    type: 'info',
+                    icon: '🔄',
+                    title: 'Using Legacy Data',
+                    message: 'Dashboard showing data from old system',
+                    action: 'Consider migrating this date to new system'
+                });
+            }
+            if (data.data_sources.data_quality && data.data_sources.data_quality.completeness < 80) {
+                newAlerts.push({
+                    type: 'warning',
+                    icon: '⚠️',
+                    title: 'Incomplete Data',
+                    message: `Only ${data.data_sources.data_quality.completeness}% data completeness`,
+                    action: 'Review and complete missing data entries'
+                });
+            }
         }
 
         setAlerts(newAlerts);
@@ -459,6 +630,48 @@ function ManagementDashboard() {
                     </div>
                 </LoadingCard>
             </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-indigo-500">
+                    <div className="flex items-center">
+                        <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-600">Revenue Quality</p>
+                            <p className={`text-2xl font-bold ${dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.sales_summary ? (dashboardData.processed_analytics.sales_summary.quality_score >= 80 ? 'text-green-600' : dashboardData.processed_analytics.sales_summary.quality_score >= 60 ? 'text-yellow-600' : 'text-red-600') : 'text-gray-400'}`}>
+                                {dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.sales_summary ? `${dashboardData.processed_analytics.sales_summary.quality_score.toFixed(0)}/100` : 'N/A'}
+                            </p>
+                            <p className="text-xs text-gray-500">Payment accuracy & mix</p>
+                        </div>
+                        <div className="text-3xl text-indigo-500">📊</div>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-orange-500">
+                    <div className="flex items-center">
+                        <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-600">Petty Cash Today</p>
+                            <p className={`text-2xl font-bold ${dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.petty_cash_summary ? (dashboardData.processed_analytics.petty_cash_summary.total > 150 ? 'text-red-600' : dashboardData.processed_analytics.petty_cash_summary.total > 75 ? 'text-yellow-600' : 'text-green-600') : 'text-gray-400'}`}>
+                                {dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.petty_cash_summary ? `${dashboardData.processed_analytics.petty_cash_summary.total.toFixed(2)} QAR` : 'N/A'}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                                {dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.petty_cash_summary ? `${dashboardData.processed_analytics.petty_cash_summary.categories} categories` : 'No entries'}
+                            </p>
+                        </div>
+                        <div className="text-3xl text-orange-500">💳</div>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-teal-500">
+                    <div className="flex items-center">
+                        <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-600">Inventory Health</p>
+                            <p className={`text-2xl font-bold ${dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.inventory_summary ? (dashboardData.processed_analytics.inventory_summary.zero_stock > 0 ? 'text-red-600' : dashboardData.processed_analytics.inventory_summary.low_stock > 3 ? 'text-yellow-600' : 'text-green-600') : 'text-gray-400'}`}>
+                                {dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.inventory_summary ? `${dashboardData.processed_analytics.inventory_summary.low_stock + dashboardData.processed_analytics.inventory_summary.zero_stock}` : 'N/A'}
+                            </p>
+                            <p className="text-xs text-gray-500">Items needing attention</p>
+                        </div>
+                        <div className="text-3xl text-teal-500">📦</div>
+                    </div>
+                </div>
+            </div>
 
             {/* Detailed Analytics with individual loading */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -548,80 +761,111 @@ function ManagementDashboard() {
                     </div>
                 </SectionLoadingPlaceholder>
 
-                {/* Sales Performance */}
-                <SectionLoadingPlaceholder isLoading={cardLoading.sales}>
-                    <div className="bg-white rounded-lg shadow p-6">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-4">📊 Sales Performance</h3>
-                        {dashboardData && dashboardData.sales ? (
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                    <div>
+            </div>
+                {/* Enhanced Sales Performance */}
+                <div className="bg-white rounded-lg shadow-md p-6">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">📊 Enhanced Sales Performance</h3>
+                    {dashboardData && dashboardData.sales ? (
+                        <div className="space-y-6">
+                            <div>
+                                <h4 className="font-medium text-gray-700 mb-3">Revenue Breakdown</h4>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                    <div className="bg-blue-50 p-3 rounded">
                                         <span className="text-gray-600">Total Revenue:</span>
-                                        <p className="font-medium text-blue-600">{dashboardData.sales.total_revenue ? 
-                                            dashboardData.sales.total_revenue.toFixed(2) : 'N/A'} QAR</p>
+                                        <p className="font-medium text-blue-600 text-lg">{(dashboardData.sales.total_revenue || 0).toFixed(2)} QAR</p>
                                     </div>
-                                    <div>
-                                        <span className="text-gray-600">Total Food Cost:</span>
-                                        <p className="font-medium">{dashboardData.sales.total_food_cost ? 
-                                            dashboardData.sales.total_food_cost.toFixed(2) : 'N/A'} QAR</p>
+                                    <div className="bg-green-50 p-3 rounded">
+                                        <span className="text-gray-600">Shawarma:</span>
+                                        <p className="font-medium text-green-600 text-lg">{(dashboardData.sales.shawarma_revenue || 0).toFixed(2)} QAR</p>
+                                        <p className="text-xs text-gray-500">{((dashboardData.sales.shawarma_revenue || 0) / (dashboardData.sales.total_revenue || 1) * 100).toFixed(1)}%</p>
                                     </div>
-                                    <div>
-                                        <span className="text-gray-600">Gross Profit:</span>
-                                        <p className="font-medium text-green-600">
-                                            {dashboardData.sales.total_revenue && dashboardData.sales.total_food_cost ? 
-                                                (dashboardData.sales.total_revenue - dashboardData.sales.total_food_cost).toFixed(2) : 'N/A'} QAR
-                                        </p>
+                                    <div className="bg-purple-50 p-3 rounded">
+                                        <span className="text-gray-600">Other Food:</span>
+                                        <p className="font-medium text-purple-600 text-lg">{(dashboardData.sales.other_food_revenue || 0).toFixed(2)} QAR</p>
+                                        <p className="text-xs text-gray-500">{((dashboardData.sales.other_food_revenue || 0) / (dashboardData.sales.total_revenue || 1) * 100).toFixed(1)}%</p>
                                     </div>
-                                    <div>
-                                        <span className="text-gray-600">Food Cost %:</span>
-                                        <p className={`font-medium ${(dashboardData.sales.food_cost_percentage || 0) > 25 ? 'text-red-600' : 'text-green-600'}`}>
-                                            {dashboardData.sales.food_cost_percentage ? 
-                                                dashboardData.sales.food_cost_percentage.toFixed(1) : 'N/A'}%
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <span className="text-gray-600">Total Orders:</span>
-                                        <p className="font-medium">{dashboardData.sales.total_orders || 'N/A'}</p>
-                                    </div>
-                                    <div>
-                                        <span className="text-gray-600">Average Order Value:</span>
-                                        <p className="font-medium">
-                                            {dashboardData.sales.total_orders && dashboardData.sales.total_revenue && dashboardData.sales.total_orders > 0 ? 
-                                                (dashboardData.sales.total_revenue / dashboardData.sales.total_orders).toFixed(2) : 'N/A'} QAR
-                                        </p>
-                                    </div>
-                                </div>
-                                
-                                <div className="border-t pt-4">
-                                    <h4 className="font-medium text-gray-700 mb-2">Performance Indicators</h4>
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-sm text-gray-600">Food Cost Performance:</span>
-                                            <span className={`text-sm font-medium px-2 py-1 rounded ${
-                                                (dashboardData.sales.food_cost_percentage || 0) < 20 ? 'bg-green-100 text-green-800' :
-                                                (dashboardData.sales.food_cost_percentage || 0) < 25 ? 'bg-yellow-100 text-yellow-800' :
-                                                'bg-red-100 text-red-800'
-                                            }`}>
-                                                {(dashboardData.sales.food_cost_percentage || 0) < 20 ? 'Excellent' :
-                                                 (dashboardData.sales.food_cost_percentage || 0) < 25 ? 'Good' : 'Needs Attention'}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-sm text-gray-600">Profit Margin:</span>
-                                            <span className="text-sm font-medium text-green-600">
-                                                {dashboardData.sales.food_cost_percentage ? 
-                                                    (100 - dashboardData.sales.food_cost_percentage).toFixed(1) : 'N/A'}%
-                                            </span>
-                                        </div>
+                                    <div className="bg-orange-50 p-3 rounded">
+                                        <span className="text-gray-600">Petty Cash:</span>
+                                        <p className="font-medium text-orange-600 text-lg">{(dashboardData.sales.petty_cash_total || 0).toFixed(2)} QAR</p>
+                                        <p className="text-xs text-gray-500">{((dashboardData.sales.petty_cash_total || 0) / (dashboardData.sales.total_revenue || 1) * 100).toFixed(1)}%</p>
                                     </div>
                                 </div>
                             </div>
-                        ) : (
-                            <p className="text-gray-500">No sales data available for selected period</p>
-                        )}
-                    </div>
-                </SectionLoadingPlaceholder>
-            </div>
+
+                            {dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.sales && (
+                                <div>
+                                    <h4 className="font-medium text-gray-700 mb-3">Payment Methods</h4>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                        {Object.entries(dashboardData.enhanced_analytics.sales.payment_breakdown).map(([method, data]) => {
+                                            if (method === 'total_breakdown' || method === 'variance_from_total') return null;
+                                            const methodNames = { cash: 'Cash', card: 'Card', delivery_aggregator_1: 'Delivery 1', delivery_aggregator_2: 'Delivery 2' };
+                                            return (
+                                                <div key={method} className="border rounded p-2">
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-gray-600 text-xs">{methodNames[method] || method}</span>
+                                                        <span className="font-medium">{data.amount.toFixed(2)}</span>
+                                                    </div>
+                                                    <div className="mt-1">
+                                                        <div className="w-full bg-gray-200 rounded-full h-2">
+                                                            <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${Math.min(100, data.percentage)}%` }}></div>
+                                                        </div>
+                                                        <span className="text-xs text-gray-500">{data.percentage.toFixed(1)}%</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    {dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total > 0 && (
+                                        <div className={`mt-3 p-2 rounded text-sm ${
+                                            dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total > 10 ? 'bg-red-50 text-red-800' :
+                                            dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total > 2 ? 'bg-yellow-50 text-yellow-800' :
+                                            'bg-green-50 text-green-800'
+                                        }`}>
+                                            <span className="font-medium">Payment Validation: </span>
+                                            {dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total > 10 ?
+                                                `Large discrepancy: ${dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total.toFixed(2)} QAR` :
+                                                dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total > 2 ?
+                                                `Small discrepancy: ${dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total.toFixed(2)} QAR` :
+                                                'Payments match total revenue'
+                                            }
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.sales && (
+                                <div>
+                                    <h4 className="font-medium text-gray-700 mb-3">Performance Metrics</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                                        <div className="border rounded p-3">
+                                            <span className="text-gray-600">Revenue Quality Score:</span>
+                                            <p className={`font-medium text-lg ${
+                                                dashboardData.enhanced_analytics.sales.performance_metrics.revenue_quality_score >= 80 ? 'text-green-600' :
+                                                dashboardData.enhanced_analytics.sales.performance_metrics.revenue_quality_score >= 60 ? 'text-yellow-600' : 'text-red-600'
+                                            }`}>{dashboardData.enhanced_analytics.sales.performance_metrics.revenue_quality_score.toFixed(0)}/100</p>
+                                        </div>
+                                        <div className="border rounded p-3">
+                                            <span className="text-gray-600">Payment Diversity:</span>
+                                            <p className={`font-medium text-lg ${
+                                                dashboardData.enhanced_analytics.sales.performance_metrics.payment_method_diversity >= 70 ? 'text-green-600' :
+                                                dashboardData.enhanced_analytics.sales.performance_metrics.payment_method_diversity >= 40 ? 'text-yellow-600' : 'text-red-600'
+                                            }`}>{dashboardData.enhanced_analytics.sales.performance_metrics.payment_method_diversity.toFixed(0)}%</p>
+                                        </div>
+                                        <div className="border rounded p-3">
+                                            <span className="text-gray-600">Food Cost %:</span>
+                                            <p className={`font-medium text-lg ${
+                                                dashboardData.enhanced_analytics.sales.performance_metrics.food_cost_percentage <= 25 ? 'text-green-600' :
+                                                dashboardData.enhanced_analytics.sales.performance_metrics.food_cost_percentage <= 30 ? 'text-yellow-600' : 'text-red-600'
+                                            }`}>{dashboardData.enhanced_analytics.sales.performance_metrics.food_cost_percentage.toFixed(1)}%</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <p className="text-gray-500">No sales data available for selected period</p>
+                    )}
+                </div>
 
             {/* Inventory Overview */}
             <SectionLoadingPlaceholder isLoading={cardLoading.inventory}>
