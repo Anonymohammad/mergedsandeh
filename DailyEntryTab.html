@@ -1,5 +1,67 @@
 
 <script type="text/babel">
+function PettyCashModal({ open, onClose, entries, setEntries }) {
+    const [entry, setEntry] = React.useState({ category: 'Fuel', description: '', amount: '', paidBy: '' });
+
+    const addEntry = () => {
+        if (!entry.description || !entry.amount) return;
+        setEntries([...entries, entry]);
+        setEntry({ category: 'Fuel', description: '', amount: '', paidBy: '' });
+    };
+
+    const deleteEntry = index => {
+        setEntries(entries.filter((_, i) => i !== index));
+    };
+
+    const total = entries.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+
+    if (!open) return null;
+
+    return React.createElement('div', { className: 'fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50' },
+        React.createElement('div', { className: 'bg-white p-6 rounded w-full max-w-md' },
+            React.createElement('h3', { className: 'text-lg font-semibold mb-4' }, 'Petty Cash'),
+            React.createElement('div', { className: 'space-y-2' },
+                React.createElement('select', {
+                    value: entry.category,
+                    onChange: e => setEntry({ ...entry, category: e.target.value }),
+                    className: 'w-full p-2 border rounded'
+                }, ['Fuel','Ingredients','Supplies','Equipment','Other'].map(cat => React.createElement('option',{key:cat,value:cat},cat))),
+                React.createElement('input', {
+                    type: 'text',
+                    value: entry.description,
+                    onChange: e => setEntry({ ...entry, description: e.target.value }),
+                    className: 'w-full p-2 border rounded',
+                    placeholder: 'Description'
+                }),
+                React.createElement('input', {
+                    type: 'number',
+                    step: '0.01',
+                    value: entry.amount,
+                    onChange: e => setEntry({ ...entry, amount: e.target.value }),
+                    className: 'w-full p-2 border rounded',
+                    placeholder: 'Amount'
+                }),
+                React.createElement('input', {
+                    type: 'text',
+                    value: entry.paidBy,
+                    onChange: e => setEntry({ ...entry, paidBy: e.target.value }),
+                    className: 'w-full p-2 border rounded',
+                    placeholder: 'Paid By'
+                }),
+                React.createElement('button', { type: 'button', onClick: addEntry, className: 'bg-olive-600 text-white px-4 py-2 rounded' }, 'Add Entry')
+            ),
+            entries.length > 0 && React.createElement('ul', { className: 'mt-4 space-y-2' },
+                entries.map((e, idx) => React.createElement('li', { key: idx, className: 'flex justify-between items-center' },
+                    React.createElement('span', null, `${e.category} - ${e.description}: ${e.amount} QAR`),
+                    React.createElement('button', { type: 'button', onClick: () => deleteEntry(idx), className: 'text-red-600' }, 'Delete')
+                ))
+            ),
+            React.createElement('div', { className: 'mt-4 font-medium' }, 'Total: ' + total.toFixed(2) + ' QAR'),
+            React.createElement('button', { type: 'button', onClick: onClose, className: 'mt-4 bg-gray-500 text-white px-4 py-2 rounded' }, 'Close')
+        )
+    );
+}
+
 function DailyEntryTab() {
     const { state, setState } = React.useContext(window.AppContext);
     const [pinError, setPinError] = React.useState(false);
@@ -105,10 +167,16 @@ function DailyEntryTab() {
             mayo_remaining: ''
         },
         
-        // Daily Sales (Simple - only 2 fields)
+        // Daily Sales
         sales: {
             total_revenue: '',
-            shawarma_revenue: ''
+            shawarma_revenue: '',
+            cash_sales: '',
+            card_sales: '',
+            delivery_aggregator_1: '',
+            delivery_aggregator_2: '',
+            other_food_revenue: '',
+            petty_cash_total: ''
         },
         
         // Notes
@@ -128,6 +196,46 @@ function DailyEntryTab() {
     const [fieldsLocked, setFieldsLocked] = React.useState(false);
     const [showLoadExistingPin, setShowLoadExistingPin] = React.useState(false);
     const [loadExistingPin, setLoadExistingPin] = React.useState('');
+
+    // Petty cash state
+    const [pettyCashEntries, setPettyCashEntries] = React.useState([]);
+    const [showPettyCashModal, setShowPettyCashModal] = React.useState(false);
+
+    const INVENTORY_CONFIG = {
+        rawProteins: {
+            titleKey: 'Frozen Raw Proteins',
+            items: [
+                { key: 'frozen_chicken_breast', label: 'Frozen Chicken Breast', item_id: null },
+                { key: 'chicken_shawarma', label: 'Chicken Shawarma', item_id: null },
+                { key: 'steak', label: 'Steak', item_id: null }
+            ]
+        },
+        marinatedProteins: {
+            titleKey: 'Marinated Proteins',
+            items: [
+                { key: 'fahita_chicken', label: 'Fahita Chicken', item_id: null },
+                { key: 'chicken_sub', label: 'Chicken Sub', item_id: null },
+                { key: 'spicy_strips', label: 'Spicy Strips', item_id: null },
+                { key: 'original_strips', label: 'Original Strips', item_id: null },
+                { key: 'marinated_steak', label: 'Marinated Steak', item_id: null }
+            ]
+        },
+        bread: {
+            titleKey: 'Bread Items',
+            items: [
+                { key: 'saj_bread', label: 'Saj Bread (0.9 QAR each)', item_id: null },
+                { key: 'pita_bread', label: 'Pita Bread (0.1 QAR each)', item_id: null },
+                { key: 'bread_rolls', label: 'Bread Rolls (0.5 QAR each)', item_id: null }
+            ]
+        },
+        highCostItems: {
+            titleKey: 'High-Cost Items',
+            items: [
+                { key: 'cream', label: 'Cream (20 QAR/kg)', item_id: null },
+                { key: 'mayo', label: 'Mayo (17.5 QAR/kg)', item_id: null }
+            ]
+        }
+    };
     
     // NEW: Dynamic range calculation functions
     const getAcceptableRemainingRange = (stackWeightKg) => {
@@ -176,6 +284,29 @@ function DailyEntryTab() {
             loadPreviousDayData();
         }
     }, [checkingExistingData, duplicateWarning, selectedDate]);
+
+    const loadItemMappings = () => {
+        try {
+            google.script.run
+                .withSuccessHandler(mappings => {
+                    Object.values(INVENTORY_CONFIG).forEach(section => {
+                        section.items.forEach(item => {
+                            if (mappings[item.key]) {
+                                item.item_id = mappings[item.key];
+                            }
+                        });
+                    });
+                })
+                .withFailureHandler(err => console.error('Error loading item mappings', err))
+                .getAllLegacyKeyMappings();
+        } catch (err) {
+            console.error('Error loading item mappings', err);
+        }
+    };
+
+    React.useEffect(() => {
+        loadItemMappings();
+    }, []);
     
     const checkExistingEntry = async () => {
         setCheckingExistingData(true);
@@ -495,7 +626,12 @@ function DailyEntryTab() {
                     total_waste_weight: calculatedMetrics && calculatedMetrics.shawarma ? calculatedMetrics.shawarma.totalWasteWeight : 0,
                     total_waste_percentage: calculatedMetrics && calculatedMetrics.shawarma ? calculatedMetrics.shawarma.totalWastePercentage : 0
                 },
-                sales: formData.sales,
+                sales: {
+                    ...formData.sales,
+                    other_food_revenue: calculateOtherFoodRevenue(),
+                    petty_cash_total: calculatePettyCashTotal()
+                },
+                pettyCashEntries: pettyCashEntries,
                 inventory: inventory,
                 notes: formData.notes,
                 isUpdate: isUpdateMode,
@@ -560,10 +696,18 @@ function DailyEntryTab() {
                 mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
             },
             sales: {
-                total_revenue: '', shawarma_revenue: ''
+                total_revenue: '',
+                shawarma_revenue: '',
+                cash_sales: '',
+                card_sales: '',
+                delivery_aggregator_1: '',
+                delivery_aggregator_2: '',
+                other_food_revenue: '',
+                petty_cash_total: ''
             },
             notes: ''
         });
+        setPettyCashEntries([]);
         setIsUpdateMode(false);
     };
     
@@ -609,7 +753,13 @@ function DailyEntryTab() {
                                     },
                                     sales: {
                                         total_revenue: data.sales ? String(data.sales.total_revenue || '') : '',
-                                        shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : ''
+                                        shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : '',
+                                        cash_sales: data.sales ? String(data.sales.cash_sales || '') : '',
+                                        card_sales: data.sales ? String(data.sales.card_sales || '') : '',
+                                        delivery_aggregator_1: data.sales ? String(data.sales.delivery_aggregator_1 || '') : '',
+                                        delivery_aggregator_2: data.sales ? String(data.sales.delivery_aggregator_2 || '') : '',
+                                        other_food_revenue: data.sales ? String(data.sales.other_food_revenue || '') : '',
+                                        petty_cash_total: data.sales ? String(data.sales.petty_cash_total || '') : ''
                                     },
                                     rawProteins: {
                                         frozen_chicken_breast_opening: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_remaining || '') : '',
@@ -674,7 +824,8 @@ function DailyEntryTab() {
                                     },
                                     notes: data.notes || ''
                                 }));
-                                
+                                setPettyCashEntries(data.pettyCashEntries || []);
+
                                 setFieldsLocked(false);
                                 setIsUpdateMode(true);
                                 setDuplicateWarning(false);
@@ -740,13 +891,21 @@ function DailyEntryTab() {
                 mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
             },
             sales: {
-                total_revenue: '', shawarma_revenue: ''
+                total_revenue: '',
+                shawarma_revenue: '',
+                cash_sales: '',
+                card_sales: '',
+                delivery_aggregator_1: '',
+                delivery_aggregator_2: '',
+                other_food_revenue: '',
+                petty_cash_total: ''
             },
             notes: ''
         });
-        
+
         setDuplicateWarning(false);
         setIsUpdateMode(false);
+        setPettyCashEntries([]);
         setFieldsLocked(false);
         setShowLoadExistingPin(false);
         setLoadExistingPin('');
@@ -764,6 +923,16 @@ function DailyEntryTab() {
         setShowPinInput(false);
         setManagementPin('');
         setFieldsLocked(false);
+    };
+
+    const calculateOtherFoodRevenue = () => {
+        const total = parseFloat(formData.sales.total_revenue) || 0;
+        const shawarma = parseFloat(formData.sales.shawarma_revenue) || 0;
+        return total - shawarma;
+    };
+
+    const calculatePettyCashTotal = () => {
+        return pettyCashEntries.reduce((sum, entry) => sum + (parseFloat(entry.amount) || 0), 0);
     };
     
     const renderInventorySection = (title, sectionKey, items, unit, description) => {
@@ -880,6 +1049,12 @@ function DailyEntryTab() {
     return React.createElement('div', {
         className: 'max-w-6xl mx-auto space-y-6'
     },
+        React.createElement(PettyCashModal, {
+            open: showPettyCashModal,
+            onClose: () => setShowPettyCashModal(false),
+            entries: pettyCashEntries,
+            setEntries: setPettyCashEntries
+        }),
         React.createElement('div', {
             className: 'bg-white rounded-lg shadow p-6'
         },
@@ -1300,11 +1475,13 @@ function DailyEntryTab() {
                         }, '(Carry forward from previous day)')
                     ),
                     
-                    renderInventorySection('Frozen Raw Proteins', 'rawProteins', [
-                        {key: 'frozen_chicken_breast', label: 'Frozen Chicken Breast'},
-                        {key: 'chicken_shawarma', label: 'Chicken Shawarma'},
-                        {key: 'steak', label: 'Steak'}
-                    ], 'kg', 'kg')
+                    renderInventorySection(
+                        INVENTORY_CONFIG.rawProteins.titleKey,
+                        'rawProteins',
+                        INVENTORY_CONFIG.rawProteins.items,
+                        'kg',
+                        'kg'
+                    )
                 ),
                 
                 // Marinated Proteins Section
@@ -1319,14 +1496,13 @@ function DailyEntryTab() {
                             className: 'ml-2 text-sm font-normal text-gray-600'
                         }, '(Carry forward from previous day)')
                     ),
-                      renderInventorySection('Marinated Proteins', 'marinatedProteins', [
-                        {key: 'fahita_chicken', label: 'Fahita Chicken'},
-                        {key: 'chicken_sub', label: 'Chicken Sub'},
-                        {key: 'spicy_strips', label: 'Spicy Strips'},
-                        {key: 'original_strips', label: 'Original Strips'},
-    // ADD THIS LINE:
-    {key: 'marinated_steak', label: 'Marinated Steak'}
-                    ], 'kg', 'kg')
+                    renderInventorySection(
+                        INVENTORY_CONFIG.marinatedProteins.titleKey,
+                        'marinatedProteins',
+                        INVENTORY_CONFIG.marinatedProteins.items,
+                        'kg',
+                        'kg'
+                    )
                 ),
                 
                 // Bread Section
@@ -1342,11 +1518,13 @@ function DailyEntryTab() {
                         }, '(Carry forward from previous day)')
                     ),
                     
-                    renderInventorySection('Bread Items', 'bread', [
-                        {key: 'saj_bread', label: 'Saj Bread (0.9 QAR each)'},
-                        {key: 'pita_bread', label: 'Pita Bread (0.1 QAR each)'},
-                        {key: 'bread_rolls', label: 'Bread Rolls (0.5 QAR each)'}
-                    ], 'pieces', 'pieces')
+                    renderInventorySection(
+                        INVENTORY_CONFIG.bread.titleKey,
+                        'bread',
+                        INVENTORY_CONFIG.bread.items,
+                        'pieces',
+                        'pieces'
+                    )
                 ),
                 
                 // High-Cost Items Section
@@ -1362,10 +1540,13 @@ function DailyEntryTab() {
                         }, '(Carry forward from previous day)')
                     ),
                     
-                    renderInventorySection('High-Cost Items', 'highCostItems', [
-                        {key: 'cream', label: 'Cream (20 QAR/kg)'},
-                        {key: 'mayo', label: 'Mayo (17.5 QAR/kg)'}
-                    ], 'kg', 'kg')
+                    renderInventorySection(
+                        INVENTORY_CONFIG.highCostItems.titleKey,
+                        'highCostItems',
+                        INVENTORY_CONFIG.highCostItems.items,
+                        'kg',
+                        'kg'
+                    )
                 ),
                 
                 // Sales Section
@@ -1384,10 +1565,9 @@ function DailyEntryTab() {
                     React.createElement('div', {
                         className: 'grid grid-cols-1 md:grid-cols-2 gap-4'
                     },
+                        // Total revenue
                         React.createElement('div', null,
-                            React.createElement('label', {
-                                className: 'block text-sm font-medium mb-1'
-                            }, 'Total Daily Revenue (QAR)'),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Total Daily Revenue (QAR)'),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1398,10 +1578,9 @@ function DailyEntryTab() {
                                 disabled: fieldsLocked
                             })
                         ),
+                        // Shawarma revenue
                         React.createElement('div', null,
-                            React.createElement('label', {
-                                className: 'block text-sm font-medium mb-1'
-                            }, 'Shawarma Revenue (QAR)'),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Shawarma Revenue (QAR)'),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1411,10 +1590,89 @@ function DailyEntryTab() {
                                 required: true,
                                 disabled: fieldsLocked
                             }),
-                            React.createElement('p', {
-                                className: 'text-xs text-gray-500 mt-1'
-                            }, 'Used for shawarma profitability calculations')
+                            React.createElement('p', { className: 'text-xs text-gray-500 mt-1' }, 'Used for shawarma profitability calculations')
+                        ),
+                        // Cash sales
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Cash Sales (QAR)'),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: formData.sales.cash_sales,
+                                onChange: e => handleInputChange('sales', 'cash_sales', e.target.value),
+                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                disabled: fieldsLocked
+                            })
+                        ),
+                        // Card sales
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Card Sales (QAR)'),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: formData.sales.card_sales,
+                                onChange: e => handleInputChange('sales', 'card_sales', e.target.value),
+                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                disabled: fieldsLocked
+                            })
+                        ),
+                        // Delivery platform 1
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Delivery Platform 1 (QAR)'),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: formData.sales.delivery_aggregator_1,
+                                onChange: e => handleInputChange('sales', 'delivery_aggregator_1', e.target.value),
+                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                disabled: fieldsLocked
+                            })
+                        ),
+                        // Delivery platform 2
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Delivery Platform 2 (QAR)'),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: formData.sales.delivery_aggregator_2,
+                                onChange: e => handleInputChange('sales', 'delivery_aggregator_2', e.target.value),
+                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                disabled: fieldsLocked
+                            })
+                        ),
+                        // Other food revenue (read-only)
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Other Food Revenue (QAR)'),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: calculateOtherFoodRevenue().toFixed(2),
+                                readOnly: true,
+                                className: 'w-full p-2 border rounded bg-gray-100',
+                                disabled: true
+                            })
+                        ),
+                        // Petty cash total (read-only)
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Petty Cash Total (QAR)'),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: calculatePettyCashTotal().toFixed(2),
+                                readOnly: true,
+                                className: 'w-full p-2 border rounded bg-gray-100',
+                                disabled: true
+                            })
                         )
+                    ),
+
+                    React.createElement('div', { className: 'mt-4' },
+                        React.createElement('button', {
+                            type: 'button',
+                            className: 'bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50',
+                            onClick: () => setShowPettyCashModal(true),
+                            disabled: fieldsLocked
+                        }, 'Add Petty Cash (' + calculatePettyCashTotal().toFixed(2) + ' QAR)')
                     ),
                     
                     // Sales Metrics Display
