@@ -1062,6 +1062,481 @@ function generateReportFromOldTables(targetDateString) {
   };
 }
 
+function generateDashboardReport(date, options = {}) {
+  try {
+    const config = {
+      includeTrends: options.includeTrends || false,
+      includeComparisons: options.includeComparisons || false,
+      includePettyCashAnalysis: options.includePettyCashAnalysis !== false,
+      includeInventoryAnalysis: options.includeInventoryAnalysis !== false,
+      compareToYesterday: options.compareToYesterday !== false,
+      compareToWeekAgo: options.compareToWeekAgo || false
+    };
+
+    const targetDate = date ? new Date(date).toDateString() : new Date().toDateString();
+
+    const baseReport = JSON.parse(generateDailyReport(date));
+
+    const dashboardData = {
+      ...baseReport,
+      requested_date: date,
+      config: config,
+      enhanced_analytics: {}
+    };
+
+    if (config.includePettyCashAnalysis && baseReport.pettyCashEntries) {
+      dashboardData.enhanced_analytics.pettyCash = analyzePettyCashData(baseReport.pettyCashEntries, targetDate);
+    }
+
+    if (config.includeInventoryAnalysis) {
+      dashboardData.enhanced_analytics.inventory = analyzeInventoryData(baseReport, targetDate);
+    }
+
+    if (baseReport.sales) {
+      dashboardData.enhanced_analytics.sales = analyzeSalesData(baseReport.sales, targetDate);
+    }
+
+    if (config.compareToYesterday) {
+      dashboardData.enhanced_analytics.comparisons = getComparativeData(targetDate, config);
+    }
+
+    dashboardData.data_sources = {
+      primary_source: baseReport.dataSource || 'unknown',
+      migration_status: getMigrationStatus(),
+      data_quality: assessDataQuality(baseReport)
+    };
+
+    return JSON.stringify(dashboardData);
+
+  } catch (error) {
+    logMigrationActivity('dashboard_report_error', {
+      date: date,
+      error: error.message
+    }, 'error');
+    throw error;
+  }
+}
+
+function analyzePettyCashData(pettyCashEntries, targetDate) {
+  if (!pettyCashEntries || pettyCashEntries.length === 0) {
+    return {
+      total_amount: 0,
+      entry_count: 0,
+      categories: {},
+      top_category: null,
+      average_amount: 0,
+      recommendations: []
+    };
+  }
+
+  const analysis = {
+    total_amount: 0,
+    entry_count: pettyCashEntries.length,
+    categories: {},
+    by_payer: {},
+    recommendations: []
+  };
+
+  pettyCashEntries.forEach(entry => {
+    const amount = parseFloat(entry.amount) || 0;
+    analysis.total_amount += amount;
+
+    if (!analysis.categories[entry.category]) {
+      analysis.categories[entry.category] = { amount: 0, count: 0, entries: [] };
+    }
+    analysis.categories[entry.category].amount += amount;
+    analysis.categories[entry.category].count++;
+    analysis.categories[entry.category].entries.push(entry);
+
+    if (!analysis.by_payer[entry.paid_by]) {
+      analysis.by_payer[entry.paid_by] = { amount: 0, count: 0 };
+    }
+    analysis.by_payer[entry.paid_by].amount += amount;
+    analysis.by_payer[entry.paid_by].count++;
+  });
+
+  analysis.average_amount = analysis.entry_count > 0 ? analysis.total_amount / analysis.entry_count : 0;
+
+  let topCategory = null;
+  let topAmount = 0;
+  Object.entries(analysis.categories).forEach(([category, data]) => {
+    if (data.amount > topAmount) {
+      topAmount = data.amount;
+      topCategory = category;
+    }
+  });
+  analysis.top_category = topCategory;
+
+  if (analysis.total_amount > 200) {
+    analysis.recommendations.push({
+      type: 'review',
+      message: 'High petty cash spending today - review necessity of expenses',
+      amount: analysis.total_amount
+    });
+  }
+
+  if (analysis.categories['Fuel'] && analysis.categories['Fuel'].amount > 100) {
+    analysis.recommendations.push({
+      type: 'optimize',
+      message: 'Consider fuel efficiency measures for delivery operations',
+      category: 'Fuel',
+      amount: analysis.categories['Fuel'].amount
+    });
+  }
+
+  return analysis;
+}
+
+function analyzeInventoryData(reportData, targetDate) {
+  const analysis = {
+    total_items_tracked: 0,
+    low_stock_items: [],
+    high_usage_items: [],
+    zero_stock_items: [],
+    inventory_value: 0,
+    turnover_analysis: {},
+    recommendations: []
+  };
+
+  const inventoryCategories = ['rawProteins', 'marinatedProteins', 'bread', 'highCostItems'];
+
+  inventoryCategories.forEach(category => {
+    if (!reportData[category]) return;
+
+    Object.entries(reportData[category]).forEach(([key, value]) => {
+      if (key.endsWith('_remaining')) {
+        const itemName = key.replace('_remaining', '');
+        const quantity = parseFloat(value) || 0;
+
+        analysis.total_items_tracked++;
+
+        if (quantity === 0) {
+          analysis.zero_stock_items.push({
+            category: category,
+            item: itemName,
+            quantity: quantity
+          });
+        }
+
+        const lowStockThreshold = getLowStockThreshold(category, itemName);
+        if (quantity > 0 && quantity <= lowStockThreshold) {
+          analysis.low_stock_items.push({
+            category: category,
+            item: itemName,
+            quantity: quantity,
+            threshold: lowStockThreshold,
+            severity: quantity <= lowStockThreshold * 0.5 ? 'critical' : 'warning'
+          });
+        }
+
+        const openingKey = key.replace('_remaining', '_opening');
+        const receivedKey = key.replace('_remaining', '_received');
+
+        if (reportData[category][openingKey] !== undefined) {
+          const opening = parseFloat(reportData[category][openingKey]) || 0;
+          const received = parseFloat(reportData[category][receivedKey]) || 0;
+          const usage = opening + received - quantity;
+
+          if (usage > 0) {
+            analysis.turnover_analysis[`${category}_${itemName}`] = {
+              opening: opening,
+              received: received,
+              remaining: quantity,
+              usage: usage,
+              usage_rate: opening > 0 ? (usage / opening * 100) : 0
+            };
+
+            const highUsageThreshold = getHighUsageThreshold(category, itemName);
+            if (usage >= highUsageThreshold) {
+              analysis.high_usage_items.push({
+                category: category,
+                item: itemName,
+                usage: usage,
+                usage_rate: opening > 0 ? (usage / opening * 100) : 0,
+                threshold: highUsageThreshold
+              });
+            }
+          }
+        }
+
+        const unitCost = getItemUnitCost(category, itemName);
+        if (unitCost > 0) {
+          analysis.inventory_value += quantity * unitCost;
+        }
+      }
+    });
+  });
+
+  if (analysis.zero_stock_items.length > 0) {
+    analysis.recommendations.push({
+      type: 'restock',
+      priority: 'high',
+      message: `${analysis.zero_stock_items.length} items are out of stock`,
+      items: analysis.zero_stock_items.map(item => item.item)
+    });
+  }
+
+  if (analysis.low_stock_items.filter(item => item.severity === 'critical').length > 0) {
+    analysis.recommendations.push({
+      type: 'urgent_restock',
+      priority: 'critical',
+      message: 'Critical stock levels detected - immediate restocking needed',
+      items: analysis.low_stock_items.filter(item => item.severity === 'critical')
+    });
+  }
+
+  if (analysis.high_usage_items.length > 0) {
+    analysis.recommendations.push({
+      type: 'monitor_usage',
+      priority: 'medium',
+      message: 'Unusually high usage detected for some items',
+      items: analysis.high_usage_items.map(item => item.item)
+    });
+  }
+
+  return analysis;
+}
+
+function getLowStockThreshold(category, itemName) {
+  const thresholds = {
+    rawProteins: {
+      frozen_chicken_breast: 2.0,
+      chicken_shawarma: 1.5,
+      steak: 1.0,
+      marinated_steak: 0.5
+    },
+    marinatedProteins: {
+      fahita_chicken: 1.0,
+      chicken_sub: 0.8,
+      spicy_strips: 0.5,
+      original_strips: 0.5
+    },
+    bread: {
+      saj_bread: 20,
+      pita_bread: 15,
+      bread_rolls: 10
+    },
+    highCostItems: {
+      cream: 0.5,
+      mayo: 0.3
+    }
+  };
+
+  return thresholds[category]?.[itemName] || 1.0;
+}
+
+function getHighUsageThreshold(category, itemName) {
+  const thresholds = {
+    rawProteins: {
+      frozen_chicken_breast: 5.0,
+      chicken_shawarma: 8.0,
+      steak: 3.0,
+      marinated_steak: 2.0
+    },
+    marinatedProteins: {
+      fahita_chicken: 3.0,
+      chicken_sub: 2.5,
+      spicy_strips: 2.0,
+      original_strips: 2.0
+    },
+    bread: {
+      saj_bread: 100,
+      pita_bread: 80,
+      bread_rolls: 50
+    },
+    highCostItems: {
+      cream: 2.0,
+      mayo: 1.5
+    }
+  };
+
+  return thresholds[category]?.[itemName] || 2.0;
+}
+
+function getItemUnitCost(category, itemName) {
+  const costs = {
+    rawProteins: {
+      frozen_chicken_breast: 18.5,
+      chicken_shawarma: 22.0,
+      steak: 35.0,
+      marinated_steak: 38.0
+    },
+    marinatedProteins: {
+      fahita_chicken: 25.0,
+      chicken_sub: 24.0,
+      spicy_strips: 26.0,
+      original_strips: 25.5
+    },
+    bread: {
+      saj_bread: 0.9,
+      pita_bread: 0.1,
+      bread_rolls: 0.5
+    },
+    highCostItems: {
+      cream: 20.0,
+      mayo: 17.5
+    }
+  };
+
+  return costs[category]?.[itemName] || 0;
+}
+
+function analyzeSalesData(salesData, targetDate) {
+  const analysis = {
+    total_revenue: parseFloat(salesData.total_revenue) || 0,
+    shawarma_revenue: parseFloat(salesData.shawarma_revenue) || 0,
+    other_food_revenue: parseFloat(salesData.other_food_revenue) || 0,
+    payment_breakdown: {},
+    performance_metrics: {},
+    recommendations: []
+  };
+
+  const cash = parseFloat(salesData.cash_sales) || 0;
+  const card = parseFloat(salesData.card_sales) || 0;
+  const delivery1 = parseFloat(salesData.delivery_aggregator_1) || 0;
+  const delivery2 = parseFloat(salesData.delivery_aggregator_2) || 0;
+  const pettyCash = parseFloat(salesData.petty_cash_total) || 0;
+
+  const paymentTotal = cash + card + delivery1 + delivery2;
+
+  analysis.payment_breakdown = {
+    cash: {
+      amount: cash,
+      percentage: paymentTotal > 0 ? (cash / paymentTotal * 100) : 0
+    },
+    card: {
+      amount: card,
+      percentage: paymentTotal > 0 ? (card / paymentTotal * 100) : 0
+    },
+    delivery_aggregator_1: {
+      amount: delivery1,
+      percentage: paymentTotal > 0 ? (delivery1 / paymentTotal * 100) : 0
+    },
+    delivery_aggregator_2: {
+      amount: delivery2,
+      percentage: paymentTotal > 0 ? (delivery2 / paymentTotal * 100) : 0
+    },
+    total_breakdown: paymentTotal,
+    variance_from_total: Math.abs(analysis.total_revenue - paymentTotal)
+  };
+
+  analysis.performance_metrics = {
+    shawarma_percentage: analysis.total_revenue > 0 ? (analysis.shawarma_revenue / analysis.total_revenue * 100) : 0,
+    food_cost_percentage: parseFloat(salesData.food_cost_percentage) || 0,
+    petty_cash_percentage: analysis.total_revenue > 0 ? (pettyCash / analysis.total_revenue * 100) : 0,
+    payment_method_diversity: calculatePaymentDiversity(analysis.payment_breakdown),
+    revenue_quality_score: calculateRevenueQualityScore(analysis)
+  };
+
+  if (analysis.performance_metrics.shawarma_percentage < 40) {
+    analysis.recommendations.push({
+      type: 'product_mix',
+      priority: 'medium',
+      message: `Shawarma sales are ${analysis.performance_metrics.shawarma_percentage.toFixed(1)}% of total - consider promotions`,
+      current_percentage: analysis.performance_metrics.shawarma_percentage,
+      target_percentage: 50
+    });
+  }
+
+  if (analysis.performance_metrics.food_cost_percentage > 25) {
+    analysis.recommendations.push({
+      type: 'cost_control',
+      priority: 'high',
+      message: `Food cost is ${analysis.performance_metrics.food_cost_percentage.toFixed(1)}% - review portion sizes and waste`,
+      current_percentage: analysis.performance_metrics.food_cost_percentage,
+      target_percentage: 25
+    });
+  }
+
+  if (analysis.payment_breakdown.variance_from_total > 5) {
+    analysis.recommendations.push({
+      type: 'reconciliation',
+      priority: 'high',
+      message: `Payment breakdown doesn't match total revenue (${analysis.payment_breakdown.variance_from_total.toFixed(2)} QAR difference)`,
+      variance: analysis.payment_breakdown.variance_from_total
+    });
+  }
+
+  if (analysis.performance_metrics.petty_cash_percentage > 5) {
+    analysis.recommendations.push({
+      type: 'expense_control',
+      priority: 'medium',
+      message: `Petty cash expenses are ${analysis.performance_metrics.petty_cash_percentage.toFixed(1)}% of revenue - monitor spending`,
+      current_percentage: analysis.performance_metrics.petty_cash_percentage
+    });
+  }
+
+  return analysis;
+}
+
+function calculatePaymentDiversity(paymentBreakdown) {
+  const methods = ['cash', 'card', 'delivery_aggregator_1', 'delivery_aggregator_2'];
+  const percentages = methods.map(method => paymentBreakdown[method].percentage);
+
+  let entropy = 0;
+  percentages.forEach(percentage => {
+    if (percentage > 0) {
+      const p = percentage / 100;
+      entropy -= p * Math.log2(p);
+    }
+  });
+
+  return Math.min(100, (entropy / Math.log2(methods.length)) * 100);
+}
+
+function calculateRevenueQualityScore(analysis) {
+  let score = 100;
+
+  if (analysis.performance_metrics.food_cost_percentage > 25) {
+    score -= (analysis.performance_metrics.food_cost_percentage - 25) * 2;
+  }
+
+  if (analysis.payment_breakdown.variance_from_total > 5) {
+    score -= Math.min(20, analysis.payment_breakdown.variance_from_total);
+  }
+
+  if (analysis.performance_metrics.shawarma_percentage < 40) {
+    score -= (40 - analysis.performance_metrics.shawarma_percentage) * 0.5;
+  }
+
+  if (analysis.performance_metrics.payment_method_diversity > 70) {
+    score += 5;
+  }
+
+  return Math.max(0, Math.min(100, score));
+}
+
+function getComparativeData(targetDate, config) {
+  const comparisons = {};
+  if (config.compareToYesterday) {
+    const y = new Date(targetDate);
+    y.setDate(y.getDate() - 1);
+    try {
+      comparisons.yesterday = JSON.parse(generateDailyReport(y.toISOString()));
+    } catch (e) {
+      comparisons.yesterday = { error: e.message };
+    }
+  }
+  if (config.compareToWeekAgo) {
+    const w = new Date(targetDate);
+    w.setDate(w.getDate() - 7);
+    try {
+      comparisons.weekAgo = JSON.parse(generateDailyReport(w.toISOString()));
+    } catch (e) {
+      comparisons.weekAgo = { error: e.message };
+    }
+  }
+  return comparisons;
+}
+
+function assessDataQuality(baseReport) {
+  const sections = ['shawarma', 'sales', 'rawProteins', 'marinatedProteins', 'bread', 'highCostItems'];
+  const available = sections.filter(key => baseReport[key]).length;
+  return {
+    completeness: Math.round((available / sections.length) * 100)
+  };
+}
+
 // Helper function to get sheet data (EXACT from Employee Code.gs)
 function getSheetData(sheetName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
