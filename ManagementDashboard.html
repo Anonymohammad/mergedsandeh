@@ -83,8 +83,38 @@ function ManagementDashboard() {
         };
     };
 
+    const getLowStockThreshold = (category, itemName) => {
+        const thresholds = {
+            rawProteins: {
+                frozen_chicken_breast: 2.0,
+                chicken_shawarma: 1.5,
+                steak: 1.0,
+                marinated_steak: 0.5
+            },
+            marinatedProteins: {
+                fahita_chicken: 1.0,
+                chicken_sub: 0.8,
+                spicy_strips: 0.5,
+                original_strips: 0.5,
+                marinated_steak: 0.5
+            },
+            bread: {
+                saj_bread: 20,
+                pita_bread: 15,
+                bread_roll: 10
+            },
+            highCostItems: {
+                cream: 0.5,
+                mayo: 0.3
+            }
+        }; 
+        if (thresholds[category] && thresholds[category][itemName] !== undefined) {
+            return thresholds[category][itemName];
+        }
+        return 1.0;
+    };
+
     const loadDashboardData = async () => {
-        // Only show card loading for refreshes, not initial load
         if (dashboardData) {
             setCardLoading({
                 metrics: true,
@@ -98,10 +128,6 @@ function ManagementDashboard() {
 
         try {
             let dateParam = null;
-            
-            console.log("Selected period:", selectedPeriod);
-            console.log("Custom date:", customDate);
-            
             const formatISO = (d) => d.toISOString().split('T')[0];
 
             if (selectedPeriod === 'custom' && customDate) {
@@ -112,36 +138,33 @@ function ManagementDashboard() {
                 const yesterday = new Date();
                 yesterday.setDate(yesterday.getDate() - 1);
                 dateParam = formatISO(yesterday);
-            } else if (selectedPeriod === 'week') {
-                // For week, we'll use today's date but the backend can handle week logic
-                dateParam = formatISO(new Date());
-            } else if (selectedPeriod === 'month') {
-                // For month, we'll use today's date but the backend can handle month logic
+            } else if (selectedPeriod === 'week' || selectedPeriod === 'month') {
                 dateParam = formatISO(new Date());
             }
-            
-            console.log("Requesting data for date:", dateParam);
-            
+
+            console.log("Requesting dashboard data for date:", dateParam);
+
             const response = await google.script.run
                 .withSuccessHandler(data => {
-                    console.log("Received data:", data);
+                    console.log("Received dashboard data:", data);
                     try {
                         const parsedData = JSON.parse(data);
+
                         if (parsedData.shawarma) {
                             parsedData.shawarma = computeShawarmaMetrics(parsedData.shawarma);
                         }
+
+                        if (parsedData.enhanced_analytics) {
+                            parsedData.processed_analytics = processEnhancedAnalytics(parsedData.enhanced_analytics);
+                        }
+
                         setDashboardData(parsedData);
                         generateAlerts(parsedData);
-                        
-                        // Stagger card loading completion for smooth UX
-                        setTimeout(() => setCardLoading(prev => ({ ...prev, metrics: false })), 200);
-                        setTimeout(() => setCardLoading(prev => ({ ...prev, shawarma: false })), 400);
-                        setTimeout(() => setCardLoading(prev => ({ ...prev, sales: false })), 600);
-                        setTimeout(() => setCardLoading(prev => ({ ...prev, inventory: false })), 800);
-                        
+
                         setLoading(false);
+                        setCardLoading({ metrics: false, shawarma: false, sales: false, inventory: false });
                     } catch (parseError) {
-                        console.error('Error parsing data:', parseError);
+                        console.error('Error parsing dashboard data:', parseError);
                         setLoading(false);
                         setCardLoading({ metrics: false, shawarma: false, sales: false, inventory: false });
                     }
@@ -151,7 +174,13 @@ function ManagementDashboard() {
                     setLoading(false);
                     setCardLoading({ metrics: false, shawarma: false, sales: false, inventory: false });
                 })
-                .generateDailyReport(dateParam);
+                .generateDashboardReport(dateParam, {
+                    includeTrends: true,
+                    includeComparisons: selectedPeriod !== 'custom',
+                    includePettyCashAnalysis: true,
+                    includeInventoryAnalysis: true,
+                    compareToYesterday: selectedPeriod === 'today'
+                });
         } catch (error) {
             console.error('Dashboard error:', error);
             setLoading(false);
@@ -159,101 +188,248 @@ function ManagementDashboard() {
         }
     };
 
-    const generateAlerts = (data) => {
-        const newAlerts = [];
-        
-        if (data.shawarma) {
-            const lossRange = getAcceptableLossRange();
-            const wasteRange = getAcceptableTotalWasteRange(data.shawarma.starting_weight_kg || 0);
+    const processEnhancedAnalytics = (analytics) => {
+        const processed = {
+            alerts: [],
+            recommendations: [],
+            insights: []
+        };
 
-            const remainingRange = getAcceptableRemainingRange(data.shawarma.starting_weight_kg || 0);
+        if (analytics.pettyCash) {
+            processed.petty_cash_summary = {
+                total: analytics.pettyCash.total_amount,
+                categories: Object.keys(analytics.pettyCash.categories).length,
+                top_category: analytics.pettyCash.top_category,
+                average: analytics.pettyCash.average_amount
+            };
 
-
-            if (data.shawarma.loss_percentage > lossRange.max) {
-                newAlerts.push({
-                    type: 'danger',
-                    icon: '⚠️',
-                    title: 'High Cooking Loss',
-                    message: `Loss is ${data.shawarma.loss_percentage.toFixed(1)}% (max ${lossRange.max}%)`,
-                    action: 'Review cooking process'
+            analytics.pettyCash.recommendations.forEach(rec => {
+                processed.recommendations.push({
+                    ...rec,
+                    source: 'petty_cash'
                 });
-            } else if (data.shawarma.loss_percentage > 25) {
-                newAlerts.push({
-                    type: 'warning',
-                    icon: '⚠️',
-                    title: 'Cooking Loss Above Optimal',
-                    message: `Loss is ${data.shawarma.loss_percentage.toFixed(1)}%`,
-                    action: 'Check stack setup'
-                });
-            }
-
-            if (data.shawarma.waste_percentage > wasteRange.max) {
-                newAlerts.push({
-                    type: 'danger',
-                    icon: '⚠️',
-                    title: 'High Shawarma Waste',
-                    message: `Waste is ${data.shawarma.waste_percentage.toFixed(1)}% (max ${wasteRange.max.toFixed(1)}%)`,
-                    action: 'Review cutting techniques and order timing'
-                });
-            }
-//<<<<<<< 8gof9h-codex/investigate-shawarma-waste-metrics-in-dashboard
-
-            if (data.shawarma.remaining_weight_kg > remainingRange.max) {
-                newAlerts.push({
-                    type: 'danger',
-                    icon: '⚠️',
-                    title: 'High Remaining Weight',
-                    message: `Remaining ${(data.shawarma.remaining_weight_kg * 1000).toFixed(0)}g (max ${(remainingRange.max * 1000).toFixed(0)}g)`,
-                    action: 'Adjust cutting or order timing'
-                });
-            } else if (data.shawarma.remaining_weight_kg > remainingRange.optimal) {
-                newAlerts.push({
-                    type: 'warning',
-                    icon: '⚠️',
-                    title: 'Remaining Weight Above Optimal',
-                    message: `Remaining ${(data.shawarma.remaining_weight_kg * 1000).toFixed(0)}g (optimal ${(remainingRange.optimal * 1000).toFixed(0)}g)`,
-                    action: 'Check portion sizes'
-                });
-            }
-
-//>>>>>>> main
-        }
-
-        // Staff meals alert
-        if (data.shawarma && data.shawarma.staff_meals_weight_kg > 0.4) {
-            newAlerts.push({
-                type: 'warning',
-                icon: '🍽️',
-                title: 'Staff Meals Over Limit',
-                message: `${data.shawarma.staff_meals_weight_kg}kg used (limit: 0.4kg)`,
-                action: 'Monitor staff meal portions'
             });
         }
 
-        // Food cost alerts
-        if (data.sales && data.sales.food_cost_percentage > 25) {
-            newAlerts.push({
-                type: 'danger',
-                icon: '💰',
-                title: 'High Food Cost %',
-                message: `Food cost is ${data.sales.food_cost_percentage.toFixed(1)}% (target: <25%)`,
-                action: 'Review portion sizes and waste'
+        if (analytics.inventory) {
+            processed.inventory_summary = {
+                total_items: analytics.inventory.total_items_tracked,
+                low_stock: analytics.inventory.low_stock_items.length,
+                zero_stock: analytics.inventory.zero_stock_items.length,
+                high_usage: analytics.inventory.high_usage_items.length,
+                total_value: analytics.inventory.inventory_value
+            };
+
+            analytics.inventory.recommendations.forEach(rec => {
+                processed.alerts.push({
+                    ...rec,
+                    source: 'inventory',
+                    type: rec.priority === 'critical' ? 'danger' : rec.priority === 'high' ? 'warning' : 'info'
+                });
             });
         }
 
-        // Profit per kg alerts
-        if (data.shawarma && data.shawarma.profit_per_kg < 5) {
-            newAlerts.push({
-                type: 'warning',
-                icon: '📉',
-                title: 'Low Shawarma Profitability',
-                message: `Profit per kg: ${data.shawarma.profit_per_kg.toFixed(2)} QAR`,
-                action: 'Review pricing and costs'
+        if (analytics.sales) {
+            processed.sales_summary = {
+                quality_score: analytics.sales.performance_metrics.revenue_quality_score,
+                payment_diversity: analytics.sales.performance_metrics.payment_method_diversity,
+                variance: analytics.sales.payment_breakdown.variance_from_total,
+                shawarma_percentage: analytics.sales.performance_metrics.shawarma_percentage
+            };
+
+            analytics.sales.recommendations.forEach(rec => {
+                processed.recommendations.push({
+                    ...rec,
+                    source: 'sales'
+                });
             });
         }
 
-        setAlerts(newAlerts);
+        return processed;
     };
+
+    const generateAlerts = (data) => {
+  const newAlerts = [];
+
+  if (data.shawarma) {
+    const lossRange = getAcceptableLossRange();
+    const wasteRange = getAcceptableTotalWasteRange(data.shawarma.starting_weight_kg || 0);
+    const remainingRange = getAcceptableRemainingRange(data.shawarma.starting_weight_kg || 0);
+
+    if (data.shawarma.loss_percentage > lossRange.max) {
+      newAlerts.push({
+        type: 'danger',
+        icon: '⚠️',
+        title: 'High Cooking Loss',
+        message: `Loss is ${data.shawarma.loss_percentage.toFixed(1)}% (max ${lossRange.max}%)`,
+        action: 'Review cooking process'
+      });
+    } else if (data.shawarma.loss_percentage > 25) {
+      newAlerts.push({
+        type: 'warning',
+        icon: '⚠️',
+        title: 'Cooking Loss Above Optimal',
+        message: `Loss is ${data.shawarma.loss_percentage.toFixed(1)}%`,
+        action: 'Check stack setup'
+      });
+    }
+
+    if (data.shawarma.waste_percentage > wasteRange.max) {
+      newAlerts.push({
+        type: 'danger',
+        icon: '⚠️',
+        title: 'High Shawarma Waste',
+        message: `Waste is ${data.shawarma.waste_percentage.toFixed(1)}% (max ${wasteRange.max.toFixed(1)}%)`,
+        action: 'Review cutting techniques and order timing'
+      });
+    }
+
+    if (data.shawarma.remaining_weight_kg > remainingRange.max) {
+      newAlerts.push({
+        type: 'danger',
+        icon: '⚠️',
+        title: 'High Remaining Weight',
+        message: `Remaining ${(data.shawarma.remaining_weight_kg * 1000).toFixed(0)}g (max ${(remainingRange.max * 1000).toFixed(0)}g)`,
+        action: 'Adjust cutting or order timing'
+      });
+    } else if (data.shawarma.remaining_weight_kg > remainingRange.optimal) {
+      newAlerts.push({
+        type: 'warning',
+        icon: '⚠️',
+        title: 'Remaining Weight Above Optimal',
+        message: `Remaining ${(data.shawarma.remaining_weight_kg * 1000).toFixed(0)}g (optimal ${(remainingRange.optimal * 1000).toFixed(0)}g)`,
+        action: 'Check portion sizes'
+      });
+    }
+  }
+
+  if (data.enhanced_analytics && data.enhanced_analytics.pettyCash) {
+    const pettyCash = data.enhanced_analytics.pettyCash;
+
+    if (pettyCash.total_amount > 200) {
+      newAlerts.push({
+        type: 'warning',
+        icon: '💳',
+        title: 'High Petty Cash Spending',
+        message: `${pettyCash.total_amount.toFixed(2)} QAR spent today`,
+        action: 'Review expense necessity and approval process'
+      });
+    }
+
+    if (pettyCash.categories['Fuel'] && pettyCash.categories['Fuel'].amount > 100) {
+      newAlerts.push({
+        type: 'info',
+        icon: '⛽',
+        title: 'High Fuel Expenses',
+        message: `${pettyCash.categories['Fuel'].amount.toFixed(2)} QAR on fuel`,
+        action: 'Consider delivery route optimization'
+      });
+    }
+
+    if (pettyCash.entry_count > 8) {
+      newAlerts.push({
+        type: 'info',
+        icon: '📝',
+        title: 'Many Petty Cash Entries',
+        message: `${pettyCash.entry_count} entries today`,
+        action: 'Review if some expenses could be planned purchases'
+      });
+    }
+  }
+
+  if (data.processed_analytics && data.processed_analytics.inventory_summary) {
+    const inventory = data.processed_analytics.inventory_summary;
+
+    if (inventory.zero_stock > 0) {
+      newAlerts.push({
+        type: 'danger',
+        icon: '📦',
+        title: 'Items Out of Stock',
+        message: `${inventory.zero_stock} items completely out of stock`,
+        action: 'Immediate restocking required'
+      });
+    }
+
+    if (inventory.low_stock > 5) {
+      newAlerts.push({
+        type: 'warning',
+        icon: '📉',
+        title: 'Multiple Low Stock Items',
+        message: `${inventory.low_stock} items below minimum levels`,
+        action: 'Schedule restocking for low inventory items'
+      });
+    }
+
+    if (inventory.high_usage > 3) {
+      newAlerts.push({
+        type: 'info',
+        icon: '📈',
+        title: 'High Usage Detected',
+        message: `${inventory.high_usage} items with unusually high usage`,
+        action: 'Verify usage accuracy and adjust forecasting'
+      });
+    }
+  }
+
+  if (data.enhanced_analytics && data.enhanced_analytics.sales) {
+    const sales = data.enhanced_analytics.sales;
+
+    if (sales.performance_metrics.revenue_quality_score < 60) {
+      newAlerts.push({
+        type: 'warning',
+        icon: '📊',
+        title: 'Low Revenue Quality Score',
+        message: `Quality score: ${sales.performance_metrics.revenue_quality_score.toFixed(0)}/100`,
+        action: 'Review payment reconciliation and cost controls'
+      });
+    }
+
+    if (sales.payment_breakdown.variance_from_total > 20) {
+      newAlerts.push({
+        type: 'danger',
+        icon: '💰',
+        title: 'Payment Reconciliation Issue',
+        message: `${sales.payment_breakdown.variance_from_total.toFixed(2)} QAR discrepancy`,
+        action: 'Verify payment method totals against actual revenue'
+      });
+    }
+
+    if (sales.performance_metrics.payment_method_diversity < 30) {
+      newAlerts.push({
+        type: 'info',
+        icon: '💳',
+        title: 'Low Payment Method Diversity',
+        message: `Only ${sales.performance_metrics.payment_method_diversity.toFixed(0)}% payment diversity`,
+        action: 'Encourage diverse payment methods for better insights'
+      });
+    }
+  }
+
+  if (data.data_sources) {
+    if (data.data_sources.primary_source === 'old_tables') {
+      newAlerts.push({
+        type: 'info',
+        icon: '🔄',
+        title: 'Using Legacy Data',
+        message: 'Dashboard showing data from old system',
+        action: 'Consider migrating this date to new system'
+      });
+    }
+
+    if (data.data_sources.data_quality && data.data_sources.data_quality.completeness < 80) {
+      newAlerts.push({
+        type: 'warning',
+        icon: '⚠️',
+        title: 'Incomplete Data',
+        message: `Only ${data.data_sources.data_quality.completeness}% data completeness`,
+        action: 'Review and complete missing data entries'
+      });
+    }
+  }
+
+  setAlerts(newAlerts);
+};
+
 
     const getAlertColor = (type) => {
         switch (type) {
@@ -291,6 +467,256 @@ function ManagementDashboard() {
             );
         }
         return children;
+    };
+
+    const generateSmartRecommendations = (data) => {
+        const recommendations = [];
+
+        if (data.processed_analytics && data.processed_analytics.inventory_summary) {
+            const inventory = data.processed_analytics.inventory_summary;
+            if (inventory.zero_stock > 0) {
+                recommendations.push({
+                    priority: 'high',
+                    category: 'Inventory',
+                    icon: '🚨',
+                    title: 'Critical Stock Shortage',
+                    description: `${inventory.zero_stock} items are completely out of stock, potentially impacting sales`,
+                    action: 'Emergency restocking required within 24 hours',
+                    impact: 'High revenue loss risk'
+                });
+            }
+            if (inventory.low_stock > 3 && inventory.zero_stock === 0) {
+                recommendations.push({
+                    priority: 'medium',
+                    category: 'Inventory',
+                    icon: '📦',
+                    title: 'Proactive Restocking Needed',
+                    description: `${inventory.low_stock} items are running low but still available`,
+                    action: 'Schedule restocking within 2-3 days to avoid stockouts',
+                    impact: 'Prevent future disruptions'
+                });
+            }
+            if (inventory.total_value > 5000) {
+                recommendations.push({
+                    priority: 'medium',
+                    category: 'Finance',
+                    icon: '💰',
+                    title: 'High Inventory Value',
+                    description: `Current inventory worth ${inventory.total_value.toFixed(0)} QAR`,
+                    action: 'Review inventory turnover and consider reducing slow-moving items',
+                    impact: 'Optimize cash flow'
+                });
+            }
+            if (inventory.high_usage > 2) {
+                recommendations.push({
+                    priority: 'low',
+                    category: 'Operations',
+                    icon: '📈',
+                    title: 'Review High Usage Items',
+                    description: `${inventory.high_usage} items showing unusually high consumption`,
+                    action: 'Verify portion sizes and check for waste or theft',
+                    impact: 'Cost optimization'
+                });
+            }
+        }
+
+        if (data.enhanced_analytics && data.enhanced_analytics.sales) {
+            const sales = data.enhanced_analytics.sales;
+            if (sales.performance_metrics.shawarma_percentage < 40) {
+                recommendations.push({
+                    priority: 'medium',
+                    category: 'Marketing',
+                    icon: '🥙',
+                    title: 'Boost Shawarma Sales',
+                    description: `Shawarma only ${sales.performance_metrics.shawarma_percentage.toFixed(1)}% of total sales`,
+                    action: 'Consider shawarma promotions or combo deals',
+                    impact: 'Increase high-margin product sales'
+                });
+            }
+            if (sales.performance_metrics.food_cost_percentage > 28) {
+                recommendations.push({
+                    priority: 'high',
+                    category: 'Cost Control',
+                    icon: '💸',
+                    title: 'Food Cost Too High',
+                    description: `Food cost at ${sales.performance_metrics.food_cost_percentage.toFixed(1)}%, above 25% target`,
+                    action: 'Review portion sizes, reduce waste, negotiate supplier prices',
+                    impact: 'Improve profitability'
+                });
+            }
+            if (sales.payment_breakdown.variance_from_total > 10) {
+                recommendations.push({
+                    priority: 'high',
+                    category: 'Finance',
+                    icon: '🔍',
+                    title: 'Payment Reconciliation Issue',
+                    description: `${sales.payment_breakdown.variance_from_total.toFixed(2)} QAR discrepancy in payment methods`,
+                    action: 'Audit cash register and payment processing systems',
+                    impact: 'Ensure financial accuracy'
+                });
+            }
+            if (sales.performance_metrics.payment_method_diversity < 50) {
+                recommendations.push({
+                    priority: 'low',
+                    category: 'Technology',
+                    icon: '💳',
+                    title: 'Promote Digital Payments',
+                    description: 'Low payment method diversity limits customer convenience',
+                    action: 'Encourage card and mobile payments, check POS functionality',
+                    impact: 'Better customer experience and data insights'
+                });
+            }
+        }
+
+        if (data.enhanced_analytics && data.enhanced_analytics.pettyCash) {
+            const pettyCash = data.enhanced_analytics.pettyCash;
+            if (pettyCash.total_amount > 150) {
+                recommendations.push({
+                    priority: 'medium',
+                    category: 'Expense Control',
+                    icon: '💳',
+                    title: 'High Petty Cash Spending',
+                    description: `${pettyCash.total_amount.toFixed(2)} QAR in petty cash expenses today`,
+                    action: 'Review expense approval process and establish daily limits',
+                    impact: 'Better expense control'
+                });
+            }
+            if (pettyCash.categories && pettyCash.categories['Fuel'] && pettyCash.categories['Fuel'].amount > 80) {
+                recommendations.push({
+                    priority: 'low',
+                    category: 'Operations',
+                    icon: '⛽',
+                    title: 'Optimize Delivery Routes',
+                    description: `High fuel expenses: ${pettyCash.categories['Fuel'].amount.toFixed(2)} QAR`,
+                    action: 'Review delivery routes and consider route optimization software',
+                    impact: 'Reduce operational costs'
+                });
+            }
+            if (pettyCash.entry_count > 6) {
+                recommendations.push({
+                    priority: 'low',
+                    category: 'Process',
+                    icon: '📝',
+                    title: 'Streamline Expense Process',
+                    description: `${pettyCash.entry_count} separate petty cash entries today`,
+                    action: 'Consider bulk purchasing for common items to reduce transactions',
+                    impact: 'Administrative efficiency'
+                });
+            }
+        }
+
+        if (data.shawarma) {
+            const wastePercentage = data.shawarma.waste_percentage || 0;
+            const profitPerKg = data.shawarma.profit_per_kg || 0;
+            if (wastePercentage > 30) {
+                recommendations.push({
+                    priority: 'high',
+                    category: 'Operations',
+                    icon: '🗑️',
+                    title: 'Reduce Shawarma Waste',
+                    description: `${wastePercentage.toFixed(1)}% waste is above acceptable range`,
+                    action: 'Improve cutting techniques, adjust stack sizes, train staff',
+                    impact: 'Increase profitability'
+                });
+            }
+            if (profitPerKg < 8) {
+                recommendations.push({
+                    priority: 'medium',
+                    category: 'Pricing',
+                    icon: '💰',
+                    title: 'Review Shawarma Pricing',
+                    description: `Low profit margin: ${profitPerKg.toFixed(2)} QAR per kg`,
+                    action: 'Consider price adjustment or cost reduction strategies',
+                    impact: 'Improve margins'
+                });
+            }
+        }
+
+        if (data.data_sources && data.data_sources.primary_source === 'old_tables') {
+            recommendations.push({
+                priority: 'low',
+                category: 'System',
+                icon: '🔄',
+                title: 'Migrate to New System',
+                description: 'Using legacy data format for this date',
+                action: 'Migrate historical data to new system for better analytics',
+                impact: 'Enhanced reporting capabilities'
+            });
+        }
+
+        const priorityOrder = { high: 3, medium: 2, low: 1 };
+        return recommendations.sort((a, b) => priorityOrder[b.priority] - priorityOrder[a.priority]);
+    };
+
+    const calculateRevenuePerformance = (data) => {
+        if (!data.sales) return 'No sales data available';
+        const revenue = data.sales.total_revenue || 0;
+        if (revenue < 300) return 'Below average day';
+        if (revenue < 500) return 'Average performance';
+        if (revenue < 800) return 'Good performance';
+        return 'Excellent performance';
+    };
+
+    const calculateCostPerformance = (data) => {
+        if (!data.sales || !data.sales.food_cost_percentage) return 'No cost data available';
+        const foodCost = data.sales.food_cost_percentage;
+        if (foodCost <= 20) return 'Excellent cost control';
+        if (foodCost <= 25) return 'Good cost control';
+        if (foodCost <= 30) return 'Acceptable cost level';
+        return 'Cost control needed';
+    };
+
+    const calculateOperationalEfficiency = (data) => {
+        if (!data.shawarma) return 'No operational data available';
+        const wastePercentage = data.shawarma.waste_percentage || 0;
+        const efficiency = 100 - wastePercentage;
+        if (efficiency >= 75) return 'Highly efficient operations';
+        if (efficiency >= 70) return 'Good operational efficiency';
+        if (efficiency >= 65) return 'Acceptable efficiency';
+        return 'Efficiency improvements needed';
+    };
+
+    const getPerformanceIndicator = (data, type) => {
+        switch(type) {
+            case 'revenue':
+                if (!data.sales) return '';
+                const revenue = data.sales.total_revenue || 0;
+                return revenue >= 600 ? '🟢 Above target' : revenue >= 400 ? '🟡 On track' : '🔴 Below target';
+            case 'cost':
+                if (!data.sales) return '';
+                const foodCost = data.sales.food_cost_percentage || 0;
+                return foodCost <= 25 ? '🟢 Under control' : foodCost <= 30 ? '🟡 Monitor' : '🔴 Take action';
+            case 'efficiency':
+                if (!data.shawarma) return '';
+                const waste = data.shawarma.waste_percentage || 0;
+                return waste <= 25 ? '🟢 Efficient' : waste <= 30 ? '🟡 Good' : '🔴 Needs work';
+            default:
+                return '';
+        }
+    };
+
+    const createMetricRow = (label, value, status) => {
+        const statusColors = {
+            excellent: 'text-green-600 bg-green-50',
+            good: 'text-blue-600 bg-blue-50',
+            needs_improvement: 'text-red-600 bg-red-50',
+            unknown: 'text-gray-600 bg-gray-50'
+        };
+        const statusIcons = {
+            excellent: '🟢',
+            good: '🟡',
+            needs_improvement: '🔴',
+            unknown: '⚪'
+        };
+        return (
+            <div className="flex justify-between items-center p-2 border rounded">
+                <span className="text-sm text-gray-700">{label}</span>
+                <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{value}</span>
+                    <span className={`text-xs px-2 py-1 rounded-full ${statusColors[status] || statusColors.unknown}`}>{statusIcons[status] || statusIcons.unknown}</span>
+                </div>
+            </div>
+        );
     };
 
  
@@ -446,18 +872,78 @@ function ManagementDashboard() {
                             <div>
                                 <p className="text-sm font-medium text-gray-600">Daily Revenue</p>
                                 <p className="text-2xl font-bold text-blue-600">
-                                    {dashboardData && dashboardData.sales && dashboardData.sales.total_revenue ? 
+                                    {dashboardData && dashboardData.sales && dashboardData.sales.total_revenue ?
                                         `${dashboardData.sales.total_revenue.toFixed(2)} QAR` : 'N/A'}
                                 </p>
                             </div>
                             <div className="text-3xl">📈</div>
                         </div>
                         <div className="mt-4 text-sm text-gray-500">
-                            Orders: {dashboardData && dashboardData.sales && dashboardData.sales.total_orders ? 
+                            Orders: {dashboardData && dashboardData.sales && dashboardData.sales.total_orders ?
                                 dashboardData.sales.total_orders : 'N/A'}
                         </div>
                     </div>
                 </LoadingCard>
+
+                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-indigo-500">
+                    <div className="flex items-center">
+                        <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-600">Revenue Quality</p>
+                            <p className={`text-2xl font-bold ${
+                                (dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.sales_summary) ?
+                                    (dashboardData.processed_analytics.sales_summary.quality_score >= 80 ? 'text-green-600' :
+                                     dashboardData.processed_analytics.sales_summary.quality_score >= 60 ? 'text-yellow-600' : 'text-red-600') :
+                                    'text-gray-400'
+                            }`}>
+                                {(dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.sales_summary) ?
+                                    `${dashboardData.processed_analytics.sales_summary.quality_score.toFixed(0)}/100` : 'N/A'}
+                            </p>
+                            <p className="text-xs text-gray-500">Payment accuracy &amp; mix</p>
+                        </div>
+                        <div className="text-3xl text-indigo-500">📊</div>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-orange-500">
+                    <div className="flex items-center">
+                        <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-600">Petty Cash Today</p>
+                            <p className={`text-2xl font-bold ${
+                                (dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.petty_cash_summary) ?
+                                    (dashboardData.processed_analytics.petty_cash_summary.total > 150 ? 'text-red-600' :
+                                     dashboardData.processed_analytics.petty_cash_summary.total > 75 ? 'text-yellow-600' : 'text-green-600') :
+                                    'text-gray-400'
+                            }`}>
+                                {(dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.petty_cash_summary) ?
+                                    `${dashboardData.processed_analytics.petty_cash_summary.total.toFixed(2)} QAR` : 'N/A'}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                                {(dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.petty_cash_summary) ?
+                                    `${dashboardData.processed_analytics.petty_cash_summary.categories} categories` : 'No entries'}
+                            </p>
+                        </div>
+                        <div className="text-3xl text-orange-500">💳</div>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-lg shadow-md p-6 border-l-4 border-teal-500">
+                    <div className="flex items-center">
+                        <div className="flex-1">
+                            <p className="text-sm font-medium text-gray-600">Inventory Health</p>
+                            <p className={`text-2xl font-bold ${
+                                (dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.inventory_summary) ?
+                                    (dashboardData.processed_analytics.inventory_summary.zero_stock > 0 ? 'text-red-600' :
+                                     dashboardData.processed_analytics.inventory_summary.low_stock > 3 ? 'text-yellow-600' : 'text-green-600') :
+                                    'text-gray-400'
+                            }`}>
+                                {(dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.inventory_summary) ?
+                                    `${dashboardData.processed_analytics.inventory_summary.low_stock + dashboardData.processed_analytics.inventory_summary.zero_stock}` : 'N/A'}
+                            </p>
+                            <p className="text-xs text-gray-500">Items needing attention</p>
+                        </div>
+                        <div className="text-3xl text-teal-500">📦</div>
+                    </div>
+                </div>
             </div>
 
             {/* Detailed Analytics with individual loading */}
@@ -551,70 +1037,110 @@ function ManagementDashboard() {
                 {/* Sales Performance */}
                 <SectionLoadingPlaceholder isLoading={cardLoading.sales}>
                     <div className="bg-white rounded-lg shadow p-6">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-4">📊 Sales Performance</h3>
+                        <h3 className="text-lg font-semibold text-gray-800 mb-4">📊 Enhanced Sales Performance</h3>
+
                         {dashboardData && dashboardData.sales ? (
-                            <div className="space-y-4">
-                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                    <div>
-                                        <span className="text-gray-600">Total Revenue:</span>
-                                        <p className="font-medium text-blue-600">{dashboardData.sales.total_revenue ? 
-                                            dashboardData.sales.total_revenue.toFixed(2) : 'N/A'} QAR</p>
-                                    </div>
-                                    <div>
-                                        <span className="text-gray-600">Total Food Cost:</span>
-                                        <p className="font-medium">{dashboardData.sales.total_food_cost ? 
-                                            dashboardData.sales.total_food_cost.toFixed(2) : 'N/A'} QAR</p>
-                                    </div>
-                                    <div>
-                                        <span className="text-gray-600">Gross Profit:</span>
-                                        <p className="font-medium text-green-600">
-                                            {dashboardData.sales.total_revenue && dashboardData.sales.total_food_cost ? 
-                                                (dashboardData.sales.total_revenue - dashboardData.sales.total_food_cost).toFixed(2) : 'N/A'} QAR
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <span className="text-gray-600">Food Cost %:</span>
-                                        <p className={`font-medium ${(dashboardData.sales.food_cost_percentage || 0) > 25 ? 'text-red-600' : 'text-green-600'}`}>
-                                            {dashboardData.sales.food_cost_percentage ? 
-                                                dashboardData.sales.food_cost_percentage.toFixed(1) : 'N/A'}%
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <span className="text-gray-600">Total Orders:</span>
-                                        <p className="font-medium">{dashboardData.sales.total_orders || 'N/A'}</p>
-                                    </div>
-                                    <div>
-                                        <span className="text-gray-600">Average Order Value:</span>
-                                        <p className="font-medium">
-                                            {dashboardData.sales.total_orders && dashboardData.sales.total_revenue && dashboardData.sales.total_orders > 0 ? 
-                                                (dashboardData.sales.total_revenue / dashboardData.sales.total_orders).toFixed(2) : 'N/A'} QAR
-                                        </p>
+                            <div className="space-y-6">
+                                <div>
+                                    <h4 className="font-medium text-gray-700 mb-3">Revenue Breakdown</h4>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                        <div className="bg-blue-50 p-3 rounded">
+                                            <span className="text-gray-600">Total Revenue:</span>
+                                            <p className="font-medium text-blue-600 text-lg">{(dashboardData.sales.total_revenue || 0).toFixed(2)} QAR</p>
+                                        </div>
+                                        <div className="bg-green-50 p-3 rounded">
+                                            <span className="text-gray-600">Shawarma:</span>
+                                            <p className="font-medium text-green-600 text-lg">{(dashboardData.sales.shawarma_revenue || 0).toFixed(2)} QAR</p>
+                                            <p className="text-xs text-gray-500">{((dashboardData.sales.shawarma_revenue || 0) / (dashboardData.sales.total_revenue || 1) * 100).toFixed(1)}%</p>
+                                        </div>
+                                        <div className="bg-purple-50 p-3 rounded">
+                                            <span className="text-gray-600">Other Food:</span>
+                                            <p className="font-medium text-purple-600 text-lg">{(dashboardData.sales.other_food_revenue || 0).toFixed(2)} QAR</p>
+                                            <p className="text-xs text-gray-500">{((dashboardData.sales.other_food_revenue || 0) / (dashboardData.sales.total_revenue || 1) * 100).toFixed(1)}%</p>
+                                        </div>
+                                        <div className="bg-orange-50 p-3 rounded">
+                                            <span className="text-gray-600">Petty Cash:</span>
+                                            <p className="font-medium text-orange-600 text-lg">{(dashboardData.sales.petty_cash_total || 0).toFixed(2)} QAR</p>
+                                            <p className="text-xs text-gray-500">{((dashboardData.sales.petty_cash_total || 0) / (dashboardData.sales.total_revenue || 1) * 100).toFixed(1)}%</p>
+                                        </div>
                                     </div>
                                 </div>
-                                
-                                <div className="border-t pt-4">
-                                    <h4 className="font-medium text-gray-700 mb-2">Performance Indicators</h4>
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-sm text-gray-600">Food Cost Performance:</span>
-                                            <span className={`text-sm font-medium px-2 py-1 rounded ${
-                                                (dashboardData.sales.food_cost_percentage || 0) < 20 ? 'bg-green-100 text-green-800' :
-                                                (dashboardData.sales.food_cost_percentage || 0) < 25 ? 'bg-yellow-100 text-yellow-800' :
-                                                'bg-red-100 text-red-800'
+
+                                {dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.sales && (
+                                    <div>
+                                        <h4 className="font-medium text-gray-700 mb-3">Payment Methods</h4>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                            {Object.entries(dashboardData.enhanced_analytics.sales.payment_breakdown).map(([method, data]) => {
+                                                if (method === 'total_breakdown' || method === 'variance_from_total') return null;
+                                                const methodNames = { cash: 'Cash', card: 'Card', delivery_aggregator_1: 'Delivery 1', delivery_aggregator_2: 'Delivery 2' };
+                                                return (
+                                                    <div key={method} className="border rounded p-2">
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-gray-600 text-xs">{methodNames[method] || method}</span>
+                                                            <span className="font-medium">{data.amount.toFixed(2)}</span>
+                                                        </div>
+                                                        <div className="mt-1">
+                                                            <div className="w-full bg-gray-200 rounded-full h-2">
+                                                                <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${Math.min(100, data.percentage)}%` }}></div>
+                                                            </div>
+                                                            <span className="text-xs text-gray-500">{data.percentage.toFixed(1)}%</span>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }).filter(Boolean)}
+                                        </div>
+
+                                        {dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total > 0 && (
+                                            <div className={`mt-3 p-2 rounded text-sm ${
+                                                dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total > 10 ? 'bg-red-50 text-red-800' :
+                                                dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total > 2 ? 'bg-yellow-50 text-yellow-800' :
+                                                'bg-green-50 text-green-800'
                                             }`}>
-                                                {(dashboardData.sales.food_cost_percentage || 0) < 20 ? 'Excellent' :
-                                                 (dashboardData.sales.food_cost_percentage || 0) < 25 ? 'Good' : 'Needs Attention'}
-                                            </span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-sm text-gray-600">Profit Margin:</span>
-                                            <span className="text-sm font-medium text-green-600">
-                                                {dashboardData.sales.food_cost_percentage ? 
-                                                    (100 - dashboardData.sales.food_cost_percentage).toFixed(1) : 'N/A'}%
-                                            </span>
+                                                <span className="font-medium">Payment Validation: </span>
+                                                <span>{dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total > 10 ?
+                                                    `Large discrepancy: ${dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total.toFixed(2)} QAR` :
+                                                    dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total > 2 ?
+                                                    `Small discrepancy: ${dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total.toFixed(2)} QAR` :
+                                                    'Payments match total revenue'}</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.sales && (
+                                    <div>
+                                        <h4 className="font-medium text-gray-700 mb-3">Performance Metrics</h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                                            <div className="border rounded p-3">
+                                                <span className="text-gray-600">Revenue Quality Score:</span>
+                                                <p className={`font-medium text-lg ${
+                                                    dashboardData.enhanced_analytics.sales.performance_metrics.revenue_quality_score >= 80 ? 'text-green-600' :
+                                                    dashboardData.enhanced_analytics.sales.performance_metrics.revenue_quality_score >= 60 ? 'text-yellow-600' : 'text-red-600'
+                                                }`}>
+                                                    {dashboardData.enhanced_analytics.sales.performance_metrics.revenue_quality_score.toFixed(0)}/100
+                                                </p>
+                                            </div>
+                                            <div className="border rounded p-3">
+                                                <span className="text-gray-600">Payment Diversity:</span>
+                                                <p className={`font-medium text-lg ${
+                                                    dashboardData.enhanced_analytics.sales.performance_metrics.payment_method_diversity >= 70 ? 'text-green-600' :
+                                                    dashboardData.enhanced_analytics.sales.performance_metrics.payment_method_diversity >= 40 ? 'text-yellow-600' : 'text-red-600'
+                                                }`}>
+                                                    {dashboardData.enhanced_analytics.sales.performance_metrics.payment_method_diversity.toFixed(0)}%
+                                                </p>
+                                            </div>
+                                            <div className="border rounded p-3">
+                                                <span className="text-gray-600">Food Cost %:</span>
+                                                <p className={`font-medium text-lg ${
+                                                    dashboardData.enhanced_analytics.sales.performance_metrics.food_cost_percentage <= 25 ? 'text-green-600' :
+                                                    dashboardData.enhanced_analytics.sales.performance_metrics.food_cost_percentage <= 30 ? 'text-yellow-600' : 'text-red-600'
+                                                }`}>
+                                                    {dashboardData.enhanced_analytics.sales.performance_metrics.food_cost_percentage.toFixed(1)}%
+                                                </p>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
+                                )}
                             </div>
                         ) : (
                             <p className="text-gray-500">No sales data available for selected period</p>
@@ -622,75 +1148,240 @@ function ManagementDashboard() {
                     </div>
                 </SectionLoadingPlaceholder>
             </div>
+            {dashboardData && dashboardData.pettyCashEntries && dashboardData.pettyCashEntries.length > 0 && (
+                <div className="bg-white rounded-lg shadow-md p-6">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">💳 Petty Cash Analysis</h3>
+
+                    <div className="space-y-6">
+                        {dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.pettyCash && (
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="bg-orange-50 p-4 rounded-lg">
+                                    <h4 className="font-medium text-orange-800">Total Amount</h4>
+                                    <p className="text-2xl font-bold text-orange-600">{dashboardData.enhanced_analytics.pettyCash.total_amount.toFixed(2)} QAR</p>
+                                </div>
+                                <div className="bg-blue-50 p-4 rounded-lg">
+                                    <h4 className="font-medium text-blue-800">Total Entries</h4>
+                                    <p className="text-2xl font-bold text-blue-600">{dashboardData.enhanced_analytics.pettyCash.entry_count}</p>
+                                </div>
+                                <div className="bg-green-50 p-4 rounded-lg">
+                                    <h4 className="font-medium text-green-800">Avg Amount</h4>
+                                    <p className="text-2xl font-bold text-green-600">{dashboardData.enhanced_analytics.pettyCash.average_amount.toFixed(2)} QAR</p>
+                                </div>
+                                <div className="bg-purple-50 p-4 rounded-lg">
+                                    <h4 className="font-medium text-purple-800">Top Category</h4>
+                                    <p className="text-lg font-bold text-purple-600">{dashboardData.enhanced_analytics.pettyCash.top_category || 'N/A'}</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.pettyCash && Object.keys(dashboardData.enhanced_analytics.pettyCash.categories).length > 0 && (
+                            <div>
+                                <h4 className="font-medium text-gray-700 mb-3">Breakdown by Category</h4>
+                                <div className="space-y-2">
+                                    {Object.entries(dashboardData.enhanced_analytics.pettyCash.categories).map(([category, data]) => (
+                                        <div key={category} className="flex justify-between items-center p-3 bg-gray-50 rounded">
+                                            <div className="flex-1">
+                                                <span className="font-medium">{category}</span>
+                                                <span className="text-sm text-gray-500 ml-2">({data.count} {data.count === 1 ? 'entry' : 'entries'})</span>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className="font-medium text-lg">{data.amount.toFixed(2)} QAR</span>
+                                                <div className="text-xs text-gray-500">{((data.amount / dashboardData.enhanced_analytics.pettyCash.total_amount) * 100).toFixed(1)}%</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div>
+                            <h4 className="font-medium text-gray-700 mb-3">Recent Entries</h4>
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Paid By</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {dashboardData.pettyCashEntries.slice(0,5).map((entry, index) => (
+                                            <tr key={index} className="hover:bg-gray-50">
+                                                <td className="px-4 py-2 text-sm">
+                                                    <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">{entry.category}</span>
+                                                </td>
+                                                <td className="px-4 py-2 text-sm text-gray-900">{entry.description}</td>
+                                                <td className="px-4 py-2 text-sm font-medium text-gray-900">{parseFloat(entry.amount).toFixed(2)} QAR</td>
+                                                <td className="px-4 py-2 text-sm text-gray-500">{entry.paid_by}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Inventory Overview */}
             <SectionLoadingPlaceholder isLoading={cardLoading.inventory}>
-                <div className="bg-white rounded-lg shadow p-6">
-                    <h3 className="text-lg font-semibold text-gray-800 mb-4">📦 Inventory Overview</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        {/* Raw Proteins */}
-                        <div>
-                            <h4 className="font-medium text-gray-700 mb-3">Raw Proteins</h4>
-                            <div className="space-y-2 text-sm">
-                                <div className="flex justify-between">
-                                    <span className="text-gray-600">Chicken Shawarma:</span>
-                                    <span className="font-medium">{dashboardData && dashboardData.inventory && dashboardData.inventory.chicken_shawarma_remaining ? 
-                                        dashboardData.inventory.chicken_shawarma_remaining : 'N/A'} kg</span>
+                <div className="bg-white rounded-lg shadow-md p-6">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">📦 Enhanced Inventory Analysis</h3>
+
+                    <div className="space-y-6">
+                        {dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.inventory_summary && (
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                                <div className="bg-blue-50 p-4 rounded-lg text-center">
+                                    <h4 className="font-medium text-blue-800 text-sm">Total Items</h4>
+                                    <p className="text-xl font-bold text-blue-600">{dashboardData.processed_analytics.inventory_summary.total_items}</p>
                                 </div>
-                                <div className="flex justify-between">
-                                    <span className="text-gray-600">Chicken Breast:</span>
-                                    <span className="font-medium">{dashboardData && dashboardData.inventory && dashboardData.inventory.frozen_chicken_breast_remaining ?
-                                        dashboardData.inventory.frozen_chicken_breast_remaining : 'N/A'} kg</span>
+                                <div className={`${dashboardData.processed_analytics.inventory_summary.zero_stock > 0 ? 'bg-red-50' : 'bg-green-50'} p-4 rounded-lg text-center`}>
+                                    <h4 className={`font-medium text-sm ${dashboardData.processed_analytics.inventory_summary.zero_stock > 0 ? 'text-red-800' : 'text-green-800'}`}>Out of Stock</h4>
+                                    <p className={`text-xl font-bold ${dashboardData.processed_analytics.inventory_summary.zero_stock > 0 ? 'text-red-600' : 'text-green-600'}`}>{dashboardData.processed_analytics.inventory_summary.zero_stock}</p>
                                 </div>
-                                <div className="flex justify-between">
-                                    <span className="text-gray-600">Steak:</span>
-                                    <span className="font-medium">{dashboardData && dashboardData.inventory && dashboardData.inventory.steak_remaining ? 
-                                        dashboardData.inventory.steak_remaining : 'N/A'} kg</span>
+                                <div className={`${dashboardData.processed_analytics.inventory_summary.low_stock > 3 ? 'bg-yellow-50' : 'bg-green-50'} p-4 rounded-lg text-center`}>
+                                    <h4 className={`font-medium text-sm ${dashboardData.processed_analytics.inventory_summary.low_stock > 3 ? 'text-yellow-800' : 'text-green-800'}`}>Low Stock</h4>
+                                    <p className={`text-xl font-bold ${dashboardData.processed_analytics.inventory_summary.low_stock > 3 ? 'text-yellow-600' : 'text-green-600'}`}>{dashboardData.processed_analytics.inventory_summary.low_stock}</p>
+                                </div>
+                                <div className="bg-purple-50 p-4 rounded-lg text-center">
+                                    <h4 className="font-medium text-purple-800 text-sm">High Usage</h4>
+                                    <p className="text-xl font-bold text-purple-600">{dashboardData.processed_analytics.inventory_summary.high_usage}</p>
+                                </div>
+                                <div className="bg-green-50 p-4 rounded-lg text-center">
+                                    <h4 className="font-medium text-green-800 text-sm">Total Value</h4>
+                                    <p className="text-lg font-bold text-green-600">{dashboardData.processed_analytics.inventory_summary.total_value.toFixed(0)} QAR</p>
                                 </div>
                             </div>
-                        </div>
+                        )}
 
-                        {/* Bread */}
-                        <div>
-                            <h4 className="font-medium text-gray-700 mb-3">Bread</h4>
-                            <div className="space-y-2 text-sm">
-                                <div className="flex justify-between">
-                                    <span className="text-gray-600">Saj Bread:</span>
-                                    <span className="font-medium">{dashboardData && dashboardData.inventory && dashboardData.inventory.saj_bread_remaining ? 
-                                        dashboardData.inventory.saj_bread_remaining : 'N/A'} pcs</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-gray-600">Bread Roll:</span>
-                                    <span className="font-medium">{dashboardData && dashboardData.inventory && dashboardData.inventory.bread_roll_remaining ? 
-                                        dashboardData.inventory.bread_roll_remaining : 'N/A'} pcs</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="text-gray-600">Pita Bread:</span>
-                                    <span className="font-medium">{dashboardData && dashboardData.inventory && dashboardData.inventory.pita_bread_remaining ? 
-                                        dashboardData.inventory.pita_bread_remaining : 'N/A'} pcs</span>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div>
+                                <h4 className="font-medium text-gray-700 mb-3">Raw Proteins</h4>
+                                <div className="space-y-2 text-sm">
+                                    {dashboardData && dashboardData.inventory && Object.entries(dashboardData.inventory).filter(([key]) => ['frozen_chicken_breast_remaining','chicken_shawarma_remaining','steak_remaining'].includes(key)).map(([key, value]) => {
+                                        const itemName = key.replace('_remaining','').replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase());
+                                        const quantity = parseFloat(value) || 0;
+                                        const threshold = getLowStockThreshold('rawProteins', key.replace('_remaining',''));
+                                        const status = quantity === 0 ? 'out' : quantity <= threshold ? 'low' : 'good';
+                                        return (
+                                            <div key={key} className="flex justify-between items-center p-2 rounded border">
+                                                <span className="text-gray-600">{itemName}:</span>
+                                                <div className="text-right">
+                                                    <span className={`font-medium ${status === 'out' ? 'text-red-600' : status === 'low' ? 'text-yellow-600' : 'text-green-600'}`}>{quantity.toFixed(2)} kg</span>
+                                                    <div className="text-xs text-gray-500">Min: {threshold}kg</div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
-                        </div>
 
-                        {/* High-Cost Items */}
-                        <div>
-                            <h4 className="font-medium text-gray-700 mb-3">High-Cost Items</h4>
-                            <div className="space-y-2 text-sm">
-                                <div className="flex justify-between">
-                                    <span className="text-gray-600">Cream:</span>
-                                    <span className="font-medium">{dashboardData && dashboardData.inventory && dashboardData.inventory.cream_remaining ? 
-                                        dashboardData.inventory.cream_remaining : 'N/A'} kg</span>
+                            <div>
+                                <h4 className="font-medium text-gray-700 mb-3">Marinated Proteins</h4>
+                                <div className="space-y-2 text-sm">
+                                    {dashboardData && dashboardData.inventory && Object.entries(dashboardData.inventory).filter(([key]) => ['fahita_chicken_remaining','chicken_sub_remaining','spicy_strips_remaining','original_strips_remaining','marinated_steak_remaining'].includes(key)).map(([key, value]) => {
+                                        const itemName = key.replace('_remaining','').replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase());
+                                        const quantity = parseFloat(value) || 0;
+                                        const threshold = getLowStockThreshold('marinatedProteins', key.replace('_remaining',''));
+                                        const status = quantity === 0 ? 'out' : quantity <= threshold ? 'low' : 'good';
+                                        return (
+                                            <div key={key} className="flex justify-between items-center p-2 rounded border">
+                                                <span className="text-gray-600">{itemName}:</span>
+                                                <div className="text-right">
+                                                    <span className={`font-medium ${status === 'out' ? 'text-red-600' : status === 'low' ? 'text-yellow-600' : 'text-green-600'}`}>{quantity.toFixed(2)} kg</span>
+                                                    <div className="text-xs text-gray-500">Min: {threshold}kg</div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                                <div className="flex justify-between">
-                                    <span className="text-gray-600">Mayo:</span>
-                                    <span className="font-medium">{dashboardData && dashboardData.inventory && dashboardData.inventory.mayo_remaining ? 
-                                        dashboardData.inventory.mayo_remaining : 'N/A'} kg</span>
+                            </div>
+
+                            <div>
+                                <h4 className="font-medium text-gray-700 mb-3">Bread &amp; High-Cost Items</h4>
+                                <div className="space-y-2 text-sm">
+                                    {dashboardData && dashboardData.inventory && Object.entries(dashboardData.inventory).filter(([key]) => ['saj_bread_remaining','pita_bread_remaining','bread_roll_remaining','cream_remaining','mayo_remaining'].includes(key)).map(([key, value]) => {
+                                        const itemName = key.replace('_remaining','').replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase());
+                                        const quantity = parseFloat(value) || 0;
+                                        const isBread = key.includes('bread') || key.includes('roll');
+                                        const unit = isBread ? 'pcs' : 'kg';
+                                        const category = isBread ? 'bread' : 'highCostItems';
+                                        const threshold = getLowStockThreshold(category, key.replace('_remaining',''));
+                                        const status = quantity === 0 ? 'out' : quantity <= threshold ? 'low' : 'good';
+                                        return (
+                                            <div key={key} className="flex justify-between items-center p-2 rounded border">
+                                                <span className="text-gray-600">{itemName}:</span>
+                                                <div className="text-right">
+                                                    <span className={`font-medium ${status === 'out' ? 'text-red-600' : status === 'low' ? 'text-yellow-600' : 'text-green-600'}`}>{isBread ? Math.floor(quantity) : quantity.toFixed(2)} {unit}</span>
+                                                    <div className="text-xs text-gray-500">Min: {threshold}{unit}</div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </SectionLoadingPlaceholder>
+            {dashboardData && (
+                <div className="bg-white rounded-lg shadow-md p-6">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">📈 Performance Trends &amp; Insights</h3>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div>
+                            <h4 className="font-medium text-gray-700 mb-3">Today's Performance Summary</h4>
+                            <div className="space-y-3">
+                                <div className="flex justify-between items-center p-3 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg">
+                                    <div>
+                                        <p className="font-medium text-blue-800">Revenue Performance</p>
+                                        <p className="text-sm text-blue-600">{calculateRevenuePerformance(dashboardData)}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-xl font-bold text-blue-600">{dashboardData.sales ? `${dashboardData.sales.total_revenue.toFixed(0)} QAR` : 'N/A'}</p>
+                                        <p className="text-xs text-blue-500">{getPerformanceIndicator(dashboardData, 'revenue')}</p>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-between items-center p-3 bg-gradient-to-r from-green-50 to-green-100 rounded-lg">
+                                    <div>
+                                        <p className="font-medium text-green-800">Cost Control</p>
+                                        <p className="text-sm text-green-600">{calculateCostPerformance(dashboardData)}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-xl font-bold text-green-600">{dashboardData.sales ? `${dashboardData.sales.food_cost_percentage.toFixed(1)}%` : 'N/A'}</p>
+                                        <p className="text-xs text-green-500">{getPerformanceIndicator(dashboardData, 'cost')}</p>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-between items-center p-3 bg-gradient-to-r from-purple-50 to-purple-100 rounded-lg">
+                                    <div>
+                                        <p className="font-medium text-purple-800">Operational Efficiency</p>
+                                        <p className="text-sm text-purple-600">{calculateOperationalEfficiency(dashboardData)}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-xl font-bold text-purple-600">{dashboardData.shawarma ? `${(100 - dashboardData.shawarma.waste_percentage).toFixed(1)}%` : 'N/A'}</p>
+                                        <p className="text-xs text-purple-500">{getPerformanceIndicator(dashboardData, 'efficiency')}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <h4 className="font-medium text-gray-700 mb-3">Key Metrics at a Glance</h4>
+                            <div className="space-y-2">
+                                {createMetricRow('Shawarma Profit/kg', dashboardData.shawarma ? `${dashboardData.shawarma.profit_per_kg.toFixed(2)} QAR` : 'N/A', dashboardData.shawarma ? (dashboardData.shawarma.profit_per_kg >= 10 ? 'excellent' : dashboardData.shawarma.profit_per_kg >= 7 ? 'good' : 'needs_improvement') : 'unknown')}
+                                {createMetricRow('Revenue Quality Score', dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.sales ? `${dashboardData.enhanced_analytics.sales.performance_metrics.revenue_quality_score.toFixed(0)}/100` : 'N/A', dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.sales ? (dashboardData.enhanced_analytics.sales.performance_metrics.revenue_quality_score >= 80 ? 'excellent' : dashboardData.enhanced_analytics.sales.performance_metrics.revenue_quality_score >= 60 ? 'good' : 'needs_improvement') : 'unknown')}
+                                {createMetricRow('Inventory Health', dashboardData.processed_analytics && dashboardData.processed_analytics.inventory_summary ? `${dashboardData.processed_analytics.inventory_summary.total_items - dashboardData.processed_analytics.inventory_summary.zero_stock - dashboardData.processed_analytics.inventory_summary.low_stock}/${dashboardData.processed_analytics.inventory_summary.total_items} OK` : 'N/A', dashboardData.processed_analytics && dashboardData.processed_analytics.inventory_summary ? (dashboardData.processed_analytics.inventory_summary.zero_stock === 0 && dashboardData.processed_analytics.inventory_summary.low_stock <= 2 ? 'excellent' : dashboardData.processed_analytics.inventory_summary.zero_stock === 0 && dashboardData.processed_analytics.inventory_summary.low_stock <= 5 ? 'good' : 'needs_improvement') : 'unknown')}
+                                {createMetricRow('Petty Cash Control', dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.pettyCash ? `${dashboardData.enhanced_analytics.pettyCash.total_amount.toFixed(2)} QAR` : '0.00 QAR', dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.pettyCash ? (dashboardData.enhanced_analytics.pettyCash.total_amount <= 75 ? 'excellent' : dashboardData.enhanced_analytics.pettyCash.total_amount <= 150 ? 'good' : 'needs_improvement') : 'excellent')}
+                                {createMetricRow('Payment Accuracy', dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.sales ? `${dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total.toFixed(2)} QAR diff` : 'N/A', dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.sales ? (dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total <= 2 ? 'excellent' : dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total <= 10 ? 'good' : 'needs_improvement') : 'unknown')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Product Sales Breakdown */}
             {dashboardData && dashboardData.productSales && dashboardData.productSales.length > 0 && (
@@ -739,42 +1430,34 @@ function ManagementDashboard() {
                 </div>
             )}
 
-            {/* Recommended Actions */}
-            <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">✅ Recommended Actions</h3>
-                <div className="space-y-3">
-                    {alerts.length === 0 ? (
-                        <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                            <span className="text-green-600 text-xl">✅</span>
-                            <div>
-                                <p className="font-medium text-green-800">All Systems Normal</p>
-                                <p className="text-sm text-green-600">No immediate actions required. Keep monitoring performance.</p>
+            {/* Recommendations Engine */}
+            {dashboardData && dashboardData.processed_analytics && (
+                <div className="bg-white rounded-lg shadow-md p-6">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4">🎯 Smart Recommendations</h3>
+                    <div className="space-y-4">
+                        {generateSmartRecommendations(dashboardData).map((recommendation, index) => (
+                            <div key={index} className={`border-l-4 p-4 rounded-lg ${recommendation.priority === 'high' ? 'border-red-500 bg-red-50' : recommendation.priority === 'medium' ? 'border-yellow-500 bg-yellow-50' : 'border-blue-500 bg-blue-50'}`}>
+                                <div className="flex items-start gap-3">
+                                    <span className="text-2xl">{recommendation.icon}</span>
+                                    <div className="flex-1">
+                                        <h4 className={`font-semibold ${recommendation.priority === 'high' ? 'text-red-800' : recommendation.priority === 'medium' ? 'text-yellow-800' : 'text-blue-800'}`}>{recommendation.title}</h4>
+                                        <p className={`text-sm mt-1 ${recommendation.priority === 'high' ? 'text-red-700' : recommendation.priority === 'medium' ? 'text-yellow-700' : 'text-blue-700'}`}>{recommendation.description}</p>
+                                        <div className="mt-2 flex items-center gap-2">
+                                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${recommendation.priority === 'high' ? 'bg-red-100 text-red-800' : recommendation.priority === 'medium' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}`}>{recommendation.category}</span>
+                                            {recommendation.impact && <span className="text-xs text-gray-600">Impact: {recommendation.impact}</span>}
+                                        </div>
+                                        {recommendation.action && (
+                                            <div className="mt-2">
+                                                <p className="text-xs font-medium text-gray-800">Action: {recommendation.action}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    ) : (
-                        <div>
-                            {alerts.filter(alert => alert.type === 'danger').map((alert, index) => (
-                                <div key={`danger-${index}`} className="flex items-center gap-3 p-3 bg-red-50 border border-red-200 rounded-lg mb-3">
-                                    <span className="text-red-600 text-xl">🚨</span>
-                                    <div>
-                                        <p className="font-medium text-red-800">High Priority: {alert.title}</p>
-                                        <p className="text-sm text-red-600">{alert.action}</p>
-                                    </div>
-                                </div>
-                            ))}
-                            {alerts.filter(alert => alert.type === 'warning').map((alert, index) => (
-                                <div key={`warning-${index}`} className="flex items-center gap-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                                    <span className="text-yellow-600 text-xl">⚠️</span>
-                                    <div>
-                                        <p className="font-medium text-yellow-800">Medium Priority: {alert.title}</p>
-                                        <p className="text-sm text-yellow-600">{alert.action}</p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Data Status Section - Collapsible */}
             <div className="bg-white rounded-lg shadow">
