@@ -107,8 +107,11 @@ function ManagementDashboard() {
                 cream: 0.5,
                 mayo: 0.3
             }
-        };
-        return thresholds[category]?.[itemName] || 1.0;
+        }; 
+        if (thresholds[category] && thresholds[category][itemName] !== undefined) {
+            return thresholds[category][itemName];
+        }
+        return 1.0;
     };
 
     const loadDashboardData = async () => {

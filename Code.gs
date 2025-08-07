@@ -859,7 +859,7 @@ function saveShawarmaStackData(entryData, entryDate, employeeId) {
   const ordersWeight = parseFloat(stackData.orders_weight) || 0;
   const remainingWeight = parseFloat(stackData.remaining_weight) || 0;
 
-  const shawarmaRevenue = parseFloat(entryData.sales?.shawarma_revenue) || 0;
+  const shawarmaRevenue = parseFloat((entryData.sales && entryData.sales.shawarma_revenue) || 0);
   const costPerKg = 12.35;
   const stackCost = startingWeight * costPerKg;
 
@@ -1322,7 +1322,10 @@ function getLowStockThreshold(category, itemName) {
     }
   };
 
-  return thresholds[category]?.[itemName] || 1.0;
+  if (thresholds[category] && thresholds[category][itemName] !== undefined) {
+    return thresholds[category][itemName];
+  }
+  return 1.0;
 }
 
 function getHighUsageThreshold(category, itemName) {
@@ -1350,7 +1353,10 @@ function getHighUsageThreshold(category, itemName) {
     }
   };
 
-  return thresholds[category]?.[itemName] || 2.0;
+  if (thresholds[category] && thresholds[category][itemName] !== undefined) {
+    return thresholds[category][itemName];
+  }
+  return 2.0;
 }
 
 function getItemUnitCost(category, itemName) {
@@ -1378,7 +1384,10 @@ function getItemUnitCost(category, itemName) {
     }
   };
 
-  return costs[category]?.[itemName] || 0;
+  if (costs[category] && costs[category][itemName] !== undefined) {
+    return costs[category][itemName];
+  }
+  return 0;
 }
 
 function analyzeSalesData(salesData, targetDate) {
@@ -2079,18 +2088,19 @@ function migrateSingleDate(dateString, dryRun = false) {
 }
 
 function convertOldDataToNewFormat(oldData) {
+  const oldSales = oldData.sales || {};
   const convertedData = {
     date: oldData.date,
     employeeId: 'migration',
     shawarmaStack: oldData.shawarma || {},
     sales: {
-      total_revenue: oldData.sales?.total_revenue || 0,
-      shawarma_revenue: oldData.sales?.shawarma_revenue || 0,
+      total_revenue: oldSales.total_revenue || 0,
+      shawarma_revenue: oldSales.shawarma_revenue || 0,
       cash_sales: 0,
       card_sales: 0,
       delivery_aggregator_1: 0,
       delivery_aggregator_2: 0,
-      other_food_revenue: (oldData.sales?.total_revenue || 0) - (oldData.sales?.shawarma_revenue || 0),
+      other_food_revenue: (oldSales.total_revenue || 0) - (oldSales.shawarma_revenue || 0),
       petty_cash_total: 0
     },
     rawProteins: oldData.rawProteins || {},
@@ -2104,16 +2114,17 @@ function convertOldDataToNewFormat(oldData) {
 }
 
 function convertNewDataToOldFormat(newData) {
+  const newSales = newData.sales || {};
   return {
     date: newData.date,
     dataFound: newData.dataFound,
     shawarma: newData.shawarma,
     sales: {
-      total_revenue: newData.sales?.total_revenue,
-      shawarma_revenue: newData.sales?.shawarma_revenue,
-      total_food_cost: newData.sales?.total_food_cost,
-      food_cost_percentage: newData.sales?.food_cost_percentage,
-      total_orders: newData.sales?.total_orders
+      total_revenue: newSales.total_revenue,
+      shawarma_revenue: newSales.shawarma_revenue,
+      total_food_cost: newSales.total_food_cost,
+      food_cost_percentage: newSales.food_cost_percentage,
+      total_orders: newSales.total_orders
     },
     rawProteins: newData.rawProteins,
     marinatedProteins: newData.marinatedProteins,
@@ -2128,7 +2139,7 @@ function validateMigratedDate(dateString) {
     const oldData = generateReportFromOldTables(dateString);
     const newData = generateReportFromNewTables(dateString);
 
-    if (!oldData?.dataFound || !newData?.dataFound) {
+    if (!(oldData && oldData.dataFound) || !(newData && newData.dataFound)) {
       return { isValid: false, errors: ['Missing data in source or target'], date: dateString };
     }
 
@@ -2300,7 +2311,7 @@ function validateDatabaseSchema() {
       errors.push(`Missing table: ${tableName}`);
     } else {
       const headers = sheet.getRange(1,1,1,sheet.getLastColumn()).getValues()[0];
-      const required = REQUIRED_SHEETS[tableName]?.requiredHeaders || [];
+      const required = (REQUIRED_SHEETS[tableName] && REQUIRED_SHEETS[tableName].requiredHeaders) || [];
       required.forEach(h => { if (!headers.includes(h)) errors.push(`Missing column: ${tableName}.${h}`); });
     }
   });
