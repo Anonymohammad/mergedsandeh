@@ -159,7 +159,14 @@ const REQUIRED_SHEETS = {
       'unit_cost', 'total_cost', 'profit_margin', 'created_at', 'updated_at'
     ]
   },
-  
+
+  WasteLog: {
+    requiredHeaders: [
+      'id', 'item_id', 'waste_quantity', 'reason', 'date', 'notes',
+      'cost_override', 'estimated_cost', 'employee_id', 'created_at', 'updated_at'
+    ]
+  },
+
   Suppliers: {
     requiredHeaders: [
       'id', 'name', 'contact_person', 'phone', 'email', 'address',
@@ -3039,4 +3046,133 @@ function getLatestDataDate() {
   salesData.forEach(r => { if (r.sales_date) { const d = new Date(r.sales_date); if (!latest || d > latest) latest = d; } });
   return latest ? latest.toISOString().split('T')[0] : null;
 }
+
+// Waste management backend functions
+
+function validateWasteEntry(entry) {
+  const required = ['item_id', 'waste_quantity', 'reason', 'date'];
+  required.forEach(f => {
+    if (entry[f] === undefined || entry[f] === null || entry[f] === '') {
+      throw new Error('Missing required field: ' + f);
+    }
+  });
+
+  if (isNaN(entry.waste_quantity) || Number(entry.waste_quantity) <= 0) {
+    throw new Error('Invalid waste quantity');
+  }
+
+  const entryDate = new Date(entry.date);
+  const today = new Date();
+  if (entryDate > today) {
+    throw new Error('Date cannot be in the future');
+  }
+
+  // Verify item exists
+  const items = getSheetData('Item');
+  const item = items.find(i => i.id == entry.item_id);
+  if (!item) {
+    throw new Error('Invalid item_id');
+  }
+  entry._item = item; // attach for cost calculation
+}
+
+function saveWasteEntry(wasteData) {
+  try {
+    validateWasteEntry(wasteData);
+
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('WasteLog');
+    if (!sheet) throw new Error('WasteLog sheet not found');
+
+    const id = new Date().getTime();
+    const cost = wasteData.cost_override !== undefined && wasteData.cost_override !== ''
+      ? Number(wasteData.cost_override)
+      : Number(wasteData.waste_quantity) * Number(wasteData._item.cost_per_unit || 0);
+
+    const now = new Date();
+    const row = [
+      id,
+      wasteData.item_id,
+      Number(wasteData.waste_quantity),
+      wasteData.reason,
+      new Date(wasteData.date),
+      wasteData.notes || '',
+      wasteData.cost_override || '',
+      cost,
+      wasteData.employee_id || '',
+      now,
+      now
+    ];
+
+    appendRowSafe(sheet, row);
+    return { success: true, id: id, estimated_cost: cost };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+function saveMultipleWasteEntries(wasteEntries, employeeId) {
+  const results = [];
+  for (let i = 0; i < wasteEntries.length; i++) {
+    const entry = Object.assign({}, wasteEntries[i], { employee_id: employeeId });
+    const result = saveWasteEntry(entry);
+    results.push(result);
+    if (!result.success) {
+      // stop processing further but return what has been processed
+      break;
+    }
+  }
+  return results;
+}
+
+function getWasteEntriesForDate(date) {
+  const entries = getSheetData('WasteLog');
+  const target = new Date(date).toDateString();
+  return entries.filter(e => new Date(e.date).toDateString() === target);
+}
+
+function calculateWasteImpact(wasteEntries) {
+  const totals = wasteEntries.reduce((acc, e) => {
+    acc.quantity += Number(e.waste_quantity) || 0;
+    acc.cost += Number(e.estimated_cost) || 0;
+    return acc;
+  }, { quantity: 0, cost: 0 });
+  return totals;
+}
+
+function generateWasteAnalytics(dateRange) {
+  const allEntries = getSheetData('WasteLog');
+  const start = new Date(dateRange.start);
+  const end = new Date(dateRange.end);
+  const entries = allEntries.filter(e => {
+    const d = new Date(e.date);
+    return d >= start && d <= end;
+  });
+  const impact = calculateWasteImpact(entries);
+  return { entries: entries, impact: impact };
+}
+
+function generateWasteRecommendations(wasteData) {
+  const recs = [];
+  if (wasteData.impact && wasteData.impact.cost > 100) {
+    recs.push('Review high cost waste items for possible process improvements');
+  }
+  return recs;
+}
+
+function createWasteAlerts(wasteEntries) {
+  const alerts = [];
+  const impact = calculateWasteImpact(wasteEntries);
+  if (impact.cost > 100) {
+    alerts.push('Daily waste exceeds threshold (100 QAR)');
+  }
+  const seenItems = {};
+  wasteEntries.forEach(e => {
+    seenItems[e.item_id] = (seenItems[e.item_id] || 0) + 1;
+    if (seenItems[e.item_id] === 2) {
+      alerts.push('Item ' + e.item_id + ' wasted multiple times');
+    }
+  });
+  return alerts;
+}
+
 
