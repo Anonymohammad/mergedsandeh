@@ -1,0 +1,100 @@
+<div id="migration-root"></div>
+<script type="text/babel">
+function MigrationControlPanel() {
+  const [status, setStatus] = React.useState(null);
+  const [log, setLog] = React.useState([]);
+  const [running, setRunning] = React.useState(false);
+  const [options, setOptions] = React.useState({ batchSize: 10, startDate: '', endDate: '', validateEach: true });
+  const [progress, setProgress] = React.useState({ processed: 0, total: 0 });
+
+  const loadStatus = function() {
+    google.script.run.withSuccessHandler(function(s) {
+      setStatus(s);
+    }).getMigrationStatus();
+  };
+
+  React.useEffect(function() {
+    loadStatus();
+  }, []);
+
+  const startMigration = function() {
+    setRunning(true);
+    setLog([]);
+    google.script.run
+      .withSuccessHandler(function(res) {
+        setRunning(false);
+        setLog(function(l) { return l.concat('Migration finished: ' + res.summary); });
+        loadStatus();
+      })
+      .withFailureHandler(function(err) {
+        setRunning(false);
+        setLog(function(l) { return l.concat('Error: ' + err.message); });
+      })
+      .executeFullHistoricalMigration(options);
+  };
+
+  const validateMigration = function() {
+    google.script.run.withSuccessHandler(function(res) {
+      setLog(function(l) { return l.concat('Validation result: ' + res.overall); });
+    }).validateCompleteDataMigration({ fullValidation: true });
+  };
+
+  const rollbackMigration = function() {
+    if (google.script.run.rollbackMigration) {
+      google.script.run.rollbackMigration();
+    }
+  };
+
+  const exportReport = function() {
+    google.script.run.withSuccessHandler(function(content) {
+      const blob = new Blob([content], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'migration-log.json';
+      a.click();
+    }).exportMigrationLog('json');
+  };
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="border rounded p-4">
+        <h3 className="font-bold mb-2">Migration Status</h3>
+        <div className="text-sm">
+          {status ? `${status.dataInNewTables.total}/${status.dataInOldTables.total} records migrated` : 'Loading...'}
+        </div>
+        <div className="text-xs text-gray-600">Last activity: {status && status.timestamp}</div>
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        <button className="bg-blue-500 text-white px-4 py-2 rounded" onClick={startMigration} disabled={running}>Start Full Migration</button>
+        <button className="bg-green-500 text-white px-4 py-2 rounded" onClick={validateMigration}>Validate Migration</button>
+        <button className="bg-yellow-500 text-white px-4 py-2 rounded" onClick={rollbackMigration}>Rollback Migration</button>
+        <button className="bg-gray-500 text-white px-4 py-2 rounded" onClick={exportReport}>Export Migration Report</button>
+      </div>
+
+      {running && (
+        <div className="w-full bg-gray-200 rounded">
+          <div className="bg-blue-600 h-2 rounded" style={{ width: progress.total > 0 ? (progress.processed / progress.total * 100) + '%' : '0%' }}></div>
+        </div>
+      )}
+
+      <div className="h-40 overflow-y-scroll border p-2 text-xs bg-gray-50">
+        {log.map(function(line, i) { return <div key={i}>{line}</div>; })}
+      </div>
+
+      <div className="space-y-2 border p-4 rounded">
+        <h4 className="font-medium">Settings</h4>
+        <div className="flex flex-col gap-2 text-sm">
+          <label>Batch Size <input type="number" value={options.batchSize} onChange={function(e){ setOptions({ ...options, batchSize: parseInt(e.target.value, 10) }); }} /></label>
+          <label>Start Date <input type="date" value={options.startDate} onChange={function(e){ setOptions({ ...options, startDate: e.target.value }); }} /></label>
+          <label>End Date <input type="date" value={options.endDate} onChange={function(e){ setOptions({ ...options, endDate: e.target.value }); }} /></label>
+          <label><input type="checkbox" checked={options.validateEach} onChange={function(e){ setOptions({ ...options, validateEach: e.target.checked }); }} /> Validate Each Date</label>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.render(<MigrationControlPanel />, document.getElementById('migration-root'));
+</script>
