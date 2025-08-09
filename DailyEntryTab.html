@@ -2,6 +2,104 @@
 <script type="text/babel">
 const normalizeNumberInput = (value) => value.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
 
+function getCurrentEmployeeSession() {
+    return window.currentEmployeeSession || { employee_id: 'management', employee_name: 'Management', role: 'management' };
+}
+
+function initializeEmployeeContext(employeeSession) {
+    if (employeeSession) {
+        window.currentEmployeeSession = {
+            employee_id: employeeSession.employeeId || 'management',
+            employee_name: employeeSession.employeeName || 'Management',
+            role: employeeSession.employeeRole || 'employee'
+        };
+    } else {
+        window.currentEmployeeSession = { employee_id: 'management', employee_name: 'Management', role: 'management' };
+    }
+}
+
+function EmployeeContextDisplay({ employee, t }) {
+    return React.createElement('div', { className: 'text-sm text-gray-600 mb-4' },
+        `${t('entryBy')}: ${employee.employee_name} (${employee.role})`
+    );
+}
+
+function convertInventoryDataToNestedFormat(inventory) {
+    const nested = {
+        rawProteins: {},
+        marinatedProteins: {},
+        bread: {},
+        highCostItems: {}
+    };
+
+    const keyMappings = {
+        'chicken_breast_opening': 'rawProteins.frozen_chicken_breast_opening',
+        'chicken_breast_received': 'rawProteins.frozen_chicken_breast_received',
+        'chicken_breast_expired': 'rawProteins.frozen_chicken_breast_expired',
+        'chicken_breast_remaining': 'rawProteins.frozen_chicken_breast_remaining',
+        'chicken_shawarma_opening': 'rawProteins.chicken_shawarma_opening',
+        'chicken_shawarma_received': 'rawProteins.chicken_shawarma_received',
+        'chicken_shawarma_expired': 'rawProteins.chicken_shawarma_expired',
+        'chicken_shawarma_remaining': 'rawProteins.chicken_shawarma_remaining',
+        'steak_opening': 'rawProteins.steak_opening',
+        'steak_received': 'rawProteins.steak_received',
+        'steak_expired': 'rawProteins.steak_expired',
+        'steak_remaining': 'rawProteins.steak_remaining',
+        'fahita_chicken_opening': 'marinatedProteins.fahita_chicken_opening',
+        'fahita_chicken_received': 'marinatedProteins.fahita_chicken_received',
+        'fahita_chicken_expired': 'marinatedProteins.fahita_chicken_expired',
+        'fahita_chicken_remaining': 'marinatedProteins.fahita_chicken_remaining',
+        'chicken_sub_opening': 'marinatedProteins.chicken_sub_opening',
+        'chicken_sub_received': 'marinatedProteins.chicken_sub_received',
+        'chicken_sub_expired': 'marinatedProteins.chicken_sub_expired',
+        'chicken_sub_remaining': 'marinatedProteins.chicken_sub_remaining',
+        'spicy_strips_opening': 'marinatedProteins.spicy_strips_opening',
+        'spicy_strips_received': 'marinatedProteins.spicy_strips_received',
+        'spicy_strips_expired': 'marinatedProteins.spicy_strips_expired',
+        'spicy_strips_remaining': 'marinatedProteins.spicy_strips_remaining',
+        'original_strips_opening': 'marinatedProteins.original_strips_opening',
+        'original_strips_received': 'marinatedProteins.original_strips_received',
+        'original_strips_expired': 'marinatedProteins.original_strips_expired',
+        'original_strips_remaining': 'marinatedProteins.original_strips_remaining',
+        'marinated_steak_opening': 'marinatedProteins.marinated_steak_opening',
+        'marinated_steak_received': 'marinatedProteins.marinated_steak_received',
+        'marinated_steak_expired': 'marinatedProteins.marinated_steak_expired',
+        'marinated_steak_remaining': 'marinatedProteins.marinated_steak_remaining',
+        'saj_bread_opening': 'bread.saj_bread_opening',
+        'saj_bread_received': 'bread.saj_bread_received',
+        'saj_bread_expired': 'bread.saj_bread_expired',
+        'saj_bread_remaining': 'bread.saj_bread_remaining',
+        'pita_bread_opening': 'bread.pita_bread_opening',
+        'pita_bread_received': 'bread.pita_bread_received',
+        'pita_bread_expired': 'bread.pita_bread_expired',
+        'pita_bread_remaining': 'bread.pita_bread_remaining',
+        'bread_roll_opening': 'bread.bread_rolls_opening',
+        'bread_roll_received': 'bread.bread_rolls_received',
+        'bread_roll_expired': 'bread.bread_rolls_expired',
+        'bread_roll_remaining': 'bread.bread_rolls_remaining',
+        'cream_opening': 'highCostItems.cream_opening',
+        'cream_received': 'highCostItems.cream_received',
+        'cream_expired': 'highCostItems.cream_expired',
+        'cream_remaining': 'highCostItems.cream_remaining',
+        'mayo_opening': 'highCostItems.mayo_opening',
+        'mayo_received': 'highCostItems.mayo_received',
+        'mayo_expired': 'highCostItems.mayo_expired',
+        'mayo_remaining': 'highCostItems.mayo_remaining'
+    };
+
+    Object.keys(inventory || {}).forEach(key => {
+        const mapping = keyMappings[key];
+        if (mapping) {
+            const [section, field] = mapping.split('.');
+            if (!nested[section]) nested[section] = {};
+            nested[section][field] = inventory[key];
+        }
+    });
+
+    return nested;
+}
+
+
 function PettyCashEntryForm({ entry, onChange, onSubmit, onCancel, isEditing, categories, t }) {
     return React.createElement('div', { className: 'space-y-2 petty-cash-form' },
         React.createElement('select', {
@@ -140,6 +238,12 @@ function DailyEntryTab() {
     const { state, setState } = React.useContext(window.AppContext);
     const [pinError, setPinError] = React.useState(false);
     const [pinAttempted, setPinAttempted] = React.useState(false);
+    const [employeeContext, setEmployeeContext] = React.useState(getCurrentEmployeeSession());
+
+    React.useEffect(() => {
+        initializeEmployeeContext(state && state.employeeSession);
+        setEmployeeContext(getCurrentEmployeeSession());
+    }, [state && state.employeeSession]);
     const [formData, setFormData] = React.useState({
         // Shawarma Stack Data (No carry forward - fresh daily, NO revenue field)
         shawarmaStack: {
@@ -694,41 +798,68 @@ function DailyEntryTab() {
         try {
             // Prepare data for backend
             const inventory = {
-                chicken_breast_remaining: formData.rawProteins.frozen_chicken_breast_remaining,
+                chicken_breast_opening: formData.rawProteins.frozen_chicken_breast_opening,
                 chicken_breast_received: formData.rawProteins.frozen_chicken_breast_received,
-                chicken_shawarma_remaining: formData.rawProteins.chicken_shawarma_remaining,
+                chicken_breast_expired: formData.rawProteins.frozen_chicken_breast_expired,
+                chicken_breast_remaining: formData.rawProteins.frozen_chicken_breast_remaining,
+                chicken_shawarma_opening: formData.rawProteins.chicken_shawarma_opening,
                 chicken_shawarma_received: formData.rawProteins.chicken_shawarma_received,
-                steak_remaining: formData.rawProteins.steak_remaining,
+                chicken_shawarma_expired: formData.rawProteins.chicken_shawarma_expired,
+                chicken_shawarma_remaining: formData.rawProteins.chicken_shawarma_remaining,
+                steak_opening: formData.rawProteins.steak_opening,
                 steak_received: formData.rawProteins.steak_received,
+                steak_expired: formData.rawProteins.steak_expired,
+                steak_remaining: formData.rawProteins.steak_remaining,
 
                 // Marinated proteins
-                fahita_chicken_remaining: formData.marinatedProteins.fahita_chicken_remaining,
+                fahita_chicken_opening: formData.marinatedProteins.fahita_chicken_opening,
                 fahita_chicken_received: formData.marinatedProteins.fahita_chicken_received,
-                chicken_sub_remaining: formData.marinatedProteins.chicken_sub_remaining,
+                fahita_chicken_expired: formData.marinatedProteins.fahita_chicken_expired,
+                fahita_chicken_remaining: formData.marinatedProteins.fahita_chicken_remaining,
+                chicken_sub_opening: formData.marinatedProteins.chicken_sub_opening,
                 chicken_sub_received: formData.marinatedProteins.chicken_sub_received,
-                spicy_strips_remaining: formData.marinatedProteins.spicy_strips_remaining,
+                chicken_sub_expired: formData.marinatedProteins.chicken_sub_expired,
+                chicken_sub_remaining: formData.marinatedProteins.chicken_sub_remaining,
+                spicy_strips_opening: formData.marinatedProteins.spicy_strips_opening,
                 spicy_strips_received: formData.marinatedProteins.spicy_strips_received,
-                original_strips_remaining: formData.marinatedProteins.original_strips_remaining,
+                spicy_strips_expired: formData.marinatedProteins.spicy_strips_expired,
+                spicy_strips_remaining: formData.marinatedProteins.spicy_strips_remaining,
+                original_strips_opening: formData.marinatedProteins.original_strips_opening,
                 original_strips_received: formData.marinatedProteins.original_strips_received,
-    // ADD THESE LINES:
-    marinated_steak_remaining: formData.marinatedProteins.marinated_steak_remaining,
-    marinated_steak_received: formData.marinatedProteins.marinated_steak_received,
+                original_strips_expired: formData.marinatedProteins.original_strips_expired,
+                original_strips_remaining: formData.marinatedProteins.original_strips_remaining,
+                marinated_steak_opening: formData.marinatedProteins.marinated_steak_opening,
+                marinated_steak_received: formData.marinatedProteins.marinated_steak_received,
+                marinated_steak_expired: formData.marinatedProteins.marinated_steak_expired,
+                marinated_steak_remaining: formData.marinatedProteins.marinated_steak_remaining,
 
-                saj_bread_remaining: formData.bread.saj_bread_remaining,
+                saj_bread_opening: formData.bread.saj_bread_opening,
                 saj_bread_received: formData.bread.saj_bread_received,
-                pita_bread_remaining: formData.bread.pita_bread_remaining,
+                saj_bread_expired: formData.bread.saj_bread_expired,
+                saj_bread_remaining: formData.bread.saj_bread_remaining,
+                pita_bread_opening: formData.bread.pita_bread_opening,
                 pita_bread_received: formData.bread.pita_bread_received,
-                bread_roll_remaining: formData.bread.bread_rolls_remaining,
+                pita_bread_expired: formData.bread.pita_bread_expired,
+                pita_bread_remaining: formData.bread.pita_bread_remaining,
+                bread_roll_opening: formData.bread.bread_rolls_opening,
                 bread_roll_received: formData.bread.bread_rolls_received,
+                bread_roll_expired: formData.bread.bread_rolls_expired,
+                bread_roll_remaining: formData.bread.bread_rolls_remaining,
 
-                cream_remaining: formData.highCostItems.cream_remaining,
+                cream_opening: formData.highCostItems.cream_opening,
                 cream_received: formData.highCostItems.cream_received,
-                mayo_remaining: formData.highCostItems.mayo_remaining,
-                mayo_received: formData.highCostItems.mayo_received
+                cream_expired: formData.highCostItems.cream_expired,
+                cream_remaining: formData.highCostItems.cream_remaining,
+                mayo_opening: formData.highCostItems.mayo_opening,
+                mayo_received: formData.highCostItems.mayo_received,
+                mayo_expired: formData.highCostItems.mayo_expired,
+                mayo_remaining: formData.highCostItems.mayo_remaining
             };
 
             const entryData = {
                 date: selectedDate,
+                employeeId: getCurrentEmployeeSession().employee_id,
+                employeeName: getCurrentEmployeeSession().employee_name,
                 shawarmaStack: {
                     ...formData.shawarmaStack,
                     revenue: formData.sales.shawarma_revenue,
@@ -846,12 +977,19 @@ function DailyEntryTab() {
                         .withSuccessHandler(dataResult => {
                             try {
                                 const data = JSON.parse(dataResult);
-                                
+
                                 if (!data.dataFound) {
                                     resetFormToClean();
                                     return;
                                 }
-                                
+
+                                const inventoryData = data.inventory ? convertInventoryDataToNestedFormat(data.inventory) : {
+                                    rawProteins: data.rawProteins || {},
+                                    marinatedProteins: data.marinatedProteins || {},
+                                    bread: data.bread || {},
+                                    highCostItems: data.highCostItems || {}
+                                };
+
                                 // Load full data into form (ALL SECTIONS)
                                 setFormData(prev => ({
                                     ...prev,
@@ -873,65 +1011,64 @@ function DailyEntryTab() {
                                         petty_cash_total: data.sales ? String(data.sales.petty_cash_total || '') : ''
                                     },
                                     rawProteins: {
-                                        frozen_chicken_breast_opening: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_remaining || '') : '',
-                                        frozen_chicken_breast_received: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_received || '') : '',
-                                        frozen_chicken_breast_expired: '',
-                                        frozen_chicken_breast_remaining: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_remaining || '') : '',
-                                        chicken_shawarma_opening: data.rawProteins ? String(data.rawProteins.chicken_shawarma_remaining || '') : '',
-                                        chicken_shawarma_received: data.rawProteins ? String(data.rawProteins.chicken_shawarma_received || '') : '',
-                                        chicken_shawarma_expired: '',
-                                        chicken_shawarma_remaining: data.rawProteins ? String(data.rawProteins.chicken_shawarma_remaining || '') : '',
-                                        steak_opening: data.rawProteins ? String(data.rawProteins.steak_remaining || '') : '',
-                                        steak_received: data.rawProteins ? String(data.rawProteins.steak_received || '') : '',
-                                        steak_expired: '',
-                                        steak_remaining: data.rawProteins ? String(data.rawProteins.steak_remaining || '') : ''
+                                        frozen_chicken_breast_opening: String(inventoryData.rawProteins.frozen_chicken_breast_opening || ''),
+                                        frozen_chicken_breast_received: String(inventoryData.rawProteins.frozen_chicken_breast_received || ''),
+                                        frozen_chicken_breast_expired: String(inventoryData.rawProteins.frozen_chicken_breast_expired || ''),
+                                        frozen_chicken_breast_remaining: String(inventoryData.rawProteins.frozen_chicken_breast_remaining || ''),
+                                        chicken_shawarma_opening: String(inventoryData.rawProteins.chicken_shawarma_opening || ''),
+                                        chicken_shawarma_received: String(inventoryData.rawProteins.chicken_shawarma_received || ''),
+                                        chicken_shawarma_expired: String(inventoryData.rawProteins.chicken_shawarma_expired || ''),
+                                        chicken_shawarma_remaining: String(inventoryData.rawProteins.chicken_shawarma_remaining || ''),
+                                        steak_opening: String(inventoryData.rawProteins.steak_opening || ''),
+                                        steak_received: String(inventoryData.rawProteins.steak_received || ''),
+                                        steak_expired: String(inventoryData.rawProteins.steak_expired || ''),
+                                        steak_remaining: String(inventoryData.rawProteins.steak_remaining || '')
                                     },
                                     marinatedProteins: {
-                                        fahita_chicken_opening: data.marinatedProteins ? String(data.marinatedProteins.fahita_chicken_remaining || '') : '',
-                                        fahita_chicken_received: data.marinatedProteins ? String(data.marinatedProteins.fahita_chicken_received || '') : '',
-                                        fahita_chicken_expired: '',
-                                        fahita_chicken_remaining: data.marinatedProteins ? String(data.marinatedProteins.fahita_chicken_remaining || '') : '',
-                                        chicken_sub_opening: data.marinatedProteins ? String(data.marinatedProteins.chicken_sub_remaining || '') : '',
-                                        chicken_sub_received: data.marinatedProteins ? String(data.marinatedProteins.chicken_sub_received || '') : '',
-                                        chicken_sub_expired: '',
-                                        chicken_sub_remaining: data.marinatedProteins ? String(data.marinatedProteins.chicken_sub_remaining || '') : '',
-                                        spicy_strips_opening: data.marinatedProteins ? String(data.marinatedProteins.spicy_strips_remaining || '') : '',
-                                        spicy_strips_received: data.marinatedProteins ? String(data.marinatedProteins.spicy_strips_received || '') : '',
-                                        spicy_strips_expired: '',
-                                        spicy_strips_remaining: data.marinatedProteins ? String(data.marinatedProteins.spicy_strips_remaining || '') : '',
-                                        original_strips_opening: data.marinatedProteins ? String(data.marinatedProteins.original_strips_remaining || '') : '',
-                                        original_strips_received: data.marinatedProteins ? String(data.marinatedProteins.original_strips_received || '') : '',
-                                        original_strips_expired: '',
-                                        original_strips_remaining: data.marinatedProteins ? String(data.marinatedProteins.original_strips_remaining || '') : '',
-    // ADD THESE LINES:
-    marinated_steak_opening: data.marinatedProteins ? String(data.marinatedProteins.marinated_steak_opening || '') : '',
-    marinated_steak_received: data.marinatedProteins ? String(data.marinatedProteins.marinated_steak_received || '') : '',
-    marinated_steak_expired: data.marinatedProteins ? String(data.marinatedProteins.marinated_steak_expired || '') : '',
-    marinated_steak_remaining: data.marinatedProteins ? String(data.marinatedProteins.marinated_steak_remaining || '') : ''
+                                        fahita_chicken_opening: String(inventoryData.marinatedProteins.fahita_chicken_opening || ''),
+                                        fahita_chicken_received: String(inventoryData.marinatedProteins.fahita_chicken_received || ''),
+                                        fahita_chicken_expired: String(inventoryData.marinatedProteins.fahita_chicken_expired || ''),
+                                        fahita_chicken_remaining: String(inventoryData.marinatedProteins.fahita_chicken_remaining || ''),
+                                        chicken_sub_opening: String(inventoryData.marinatedProteins.chicken_sub_opening || ''),
+                                        chicken_sub_received: String(inventoryData.marinatedProteins.chicken_sub_received || ''),
+                                        chicken_sub_expired: String(inventoryData.marinatedProteins.chicken_sub_expired || ''),
+                                        chicken_sub_remaining: String(inventoryData.marinatedProteins.chicken_sub_remaining || ''),
+                                        spicy_strips_opening: String(inventoryData.marinatedProteins.spicy_strips_opening || ''),
+                                        spicy_strips_received: String(inventoryData.marinatedProteins.spicy_strips_received || ''),
+                                        spicy_strips_expired: String(inventoryData.marinatedProteins.spicy_strips_expired || ''),
+                                        spicy_strips_remaining: String(inventoryData.marinatedProteins.spicy_strips_remaining || ''),
+                    original_strips_opening: String(inventoryData.marinatedProteins.original_strips_opening || ''),
+                    original_strips_received: String(inventoryData.marinatedProteins.original_strips_received || ''),
+                    original_strips_expired: String(inventoryData.marinatedProteins.original_strips_expired || ''),
+                    original_strips_remaining: String(inventoryData.marinatedProteins.original_strips_remaining || ''),
+                    marinated_steak_opening: String(inventoryData.marinatedProteins.marinated_steak_opening || ''),
+                    marinated_steak_received: String(inventoryData.marinatedProteins.marinated_steak_received || ''),
+                    marinated_steak_expired: String(inventoryData.marinatedProteins.marinated_steak_expired || ''),
+                    marinated_steak_remaining: String(inventoryData.marinatedProteins.marinated_steak_remaining || '')
                                     },
                                     bread: {
-                                        saj_bread_opening: data.bread ? String(data.bread.saj_bread_remaining || '') : '',
-                                        saj_bread_received: data.bread ? String(data.bread.saj_bread_received || '') : '',
-                                        saj_bread_expired: '',
-                                        saj_bread_remaining: data.bread ? String(data.bread.saj_bread_remaining || '') : '',
-                                        pita_bread_opening: data.bread ? String(data.bread.pita_bread_remaining || '') : '',
-                                        pita_bread_received: data.bread ? String(data.bread.pita_bread_received || '') : '',
-                                        pita_bread_expired: '',
-                                        pita_bread_remaining: data.bread ? String(data.bread.pita_bread_remaining || '') : '',
-                                        bread_rolls_opening: data.bread ? String(data.bread.bread_rolls_remaining || '') : '',
-                                        bread_rolls_received: data.bread ? String(data.bread.bread_rolls_received || '') : '',
-                                        bread_rolls_expired: '',
-                                        bread_rolls_remaining: data.bread ? String(data.bread.bread_rolls_remaining || '') : ''
+                                        saj_bread_opening: String(inventoryData.bread.saj_bread_opening || ''),
+                                        saj_bread_received: String(inventoryData.bread.saj_bread_received || ''),
+                                        saj_bread_expired: String(inventoryData.bread.saj_bread_expired || ''),
+                                        saj_bread_remaining: String(inventoryData.bread.saj_bread_remaining || ''),
+                                        pita_bread_opening: String(inventoryData.bread.pita_bread_opening || ''),
+                                        pita_bread_received: String(inventoryData.bread.pita_bread_received || ''),
+                                        pita_bread_expired: String(inventoryData.bread.pita_bread_expired || ''),
+                    pita_bread_remaining: String(inventoryData.bread.pita_bread_remaining || ''),
+                    bread_rolls_opening: String(inventoryData.bread.bread_rolls_opening || ''),
+                    bread_rolls_received: String(inventoryData.bread.bread_rolls_received || ''),
+                    bread_rolls_expired: String(inventoryData.bread.bread_rolls_expired || ''),
+                    bread_rolls_remaining: String(inventoryData.bread.bread_rolls_remaining || '')
                                     },
                                     highCostItems: {
-                                        cream_opening: data.highCostItems ? String(data.highCostItems.cream_remaining || '') : '',
-                                        cream_received: data.highCostItems ? String(data.highCostItems.cream_received || '') : '',
-                                        cream_expired: '',
-                                        cream_remaining: data.highCostItems ? String(data.highCostItems.cream_remaining || '') : '',
-                                        mayo_opening: data.highCostItems ? String(data.highCostItems.mayo_remaining || '') : '',
-                                        mayo_received: data.highCostItems ? String(data.highCostItems.mayo_received || '') : '',
-                                        mayo_expired: '',
-                                        mayo_remaining: data.highCostItems ? String(data.highCostItems.mayo_remaining || '') : ''
+                                        cream_opening: String(inventoryData.highCostItems.cream_opening || ''),
+                    cream_received: String(inventoryData.highCostItems.cream_received || ''),
+                    cream_expired: String(inventoryData.highCostItems.cream_expired || ''),
+                    cream_remaining: String(inventoryData.highCostItems.cream_remaining || ''),
+                    mayo_opening: String(inventoryData.highCostItems.mayo_opening || ''),
+                    mayo_received: String(inventoryData.highCostItems.mayo_received || ''),
+                    mayo_expired: String(inventoryData.highCostItems.mayo_expired || ''),
+                    mayo_remaining: String(inventoryData.highCostItems.mayo_remaining || '')
                                     },
                                     notes: data.notes || ''
                                 }));
@@ -1230,7 +1367,9 @@ function DailyEntryTab() {
             React.createElement('h2', {
                 className: 'text-2xl font-bold text-gray-800 mb-6'
             }, 'Daily Operations Entry'),
-            
+
+            React.createElement(EmployeeContextDisplay, { employee: employeeContext, t: t }),
+
             // Date Selection and Status
             React.createElement('div', {
                 className: 'mb-6 p-4 bg-blue-50 rounded-lg'
