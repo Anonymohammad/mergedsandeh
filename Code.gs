@@ -167,6 +167,14 @@ const REQUIRED_SHEETS = {
     ]
   },
 
+  PurchaseLog: {
+    requiredHeaders: [
+      'id', 'supplier_id', 'invoice_number', 'delivery_date', 'received_by',
+      'item_id', 'quantity', 'cost_per_unit', 'total_cost', 'quality', 'notes',
+      'created_at', 'updated_at'
+    ]
+  },
+
   Suppliers: {
     requiredHeaders: [
       'id', 'name', 'contact_person', 'phone', 'email', 'address',
@@ -3173,6 +3181,127 @@ function createWasteAlerts(wasteEntries) {
     }
   });
   return alerts;
+}
+
+function validatePurchaseEntry(entry) {
+  const required = ['supplier_id', 'invoice_number', 'delivery_date', 'received_by', 'items'];
+  required.forEach(f => {
+    if (entry[f] === undefined || entry[f] === null || entry[f] === '' || (f === 'items' && (!Array.isArray(entry.items) || entry.items.length === 0))) {
+      throw new Error('Missing required field: ' + f);
+    }
+  });
+
+  const suppliers = getSheetData('Suppliers');
+  if (!suppliers.find(s => s.id == entry.supplier_id)) {
+    throw new Error('Invalid supplier_id');
+  }
+
+  const itemsSheet = getSheetData('Item');
+
+  entry.items.forEach((row, idx) => {
+    if (!row.item_id || isNaN(row.quantity) || Number(row.quantity) <= 0) {
+      throw new Error('Invalid item entry at row ' + (idx + 1));
+    }
+    if (isNaN(row.cost_per_unit) || Number(row.cost_per_unit) < 0) {
+      throw new Error('Invalid cost for item at row ' + (idx + 1));
+    }
+    if (!itemsSheet.find(it => it.id == row.item_id)) {
+      throw new Error('Invalid item_id at row ' + (idx + 1));
+    }
+  });
+
+  // prevent duplicate invoice numbers per supplier
+  const purchases = getSheetData('PurchaseLog');
+  const dup = purchases.find(p => p.supplier_id == entry.supplier_id && p.invoice_number == entry.invoice_number);
+  if (dup) {
+    throw new Error('Duplicate invoice number for supplier');
+  }
+}
+
+function savePurchaseEntry(purchaseData) {
+  try {
+    validatePurchaseEntry(purchaseData);
+
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('PurchaseLog');
+    if (!sheet) throw new Error('PurchaseLog sheet not found');
+
+    const now = new Date();
+    const baseId = new Date().getTime();
+    let total = 0;
+    purchaseData.items.forEach((item, idx) => {
+      const itemTotal = Number(item.quantity) * Number(item.cost_per_unit);
+      total += itemTotal;
+      const row = [
+        baseId + idx,
+        purchaseData.supplier_id,
+        purchaseData.invoice_number,
+        new Date(purchaseData.delivery_date),
+        purchaseData.received_by,
+        item.item_id,
+        Number(item.quantity),
+        Number(item.cost_per_unit),
+        itemTotal,
+        item.quality || '',
+        purchaseData.notes || '',
+        now,
+        now
+      ];
+      appendRowSafe(sheet, row);
+
+      // Update item cost with latest purchase price
+      const itemsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Item');
+      const items = itemsSheet.getDataRange().getValues();
+      const headers = items.shift();
+      const idIndex = headers.indexOf('id');
+      const costIndex = headers.indexOf('cost_per_unit');
+      for (let i = 0; i < items.length; i++) {
+        if (items[i][idIndex] == item.item_id) {
+          items[i][costIndex] = Number(item.cost_per_unit);
+          itemsSheet.getRange(i + 2, costIndex + 1).setValue(Number(item.cost_per_unit));
+          break;
+        }
+      }
+    });
+
+    return { success: true, total_cost: total };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+function getPurchaseEntriesForDate(date) {
+  const entries = getSheetData('PurchaseLog');
+  const target = new Date(date).toDateString();
+  const filtered = entries.filter(e => new Date(e.delivery_date).toDateString() === target);
+  const grouped = {};
+  filtered.forEach(e => {
+    const key = e.supplier_id + '_' + e.invoice_number;
+    if (!grouped[key]) {
+      grouped[key] = {
+        supplier_id: e.supplier_id,
+        invoice_number: e.invoice_number,
+        delivery_date: e.delivery_date,
+        received_by: e.received_by,
+        notes: e.notes,
+        items: [],
+        total_cost: 0
+      };
+    }
+    grouped[key].items.push(e);
+    grouped[key].total_cost += Number(e.total_cost) || 0;
+  });
+  return Object.values(grouped);
+}
+
+function linkPurchasesToDailyInventory(date) {
+  const entries = getPurchaseEntriesForDate(date);
+  const totals = {};
+  entries.forEach(group => {
+    group.items.forEach(item => {
+      totals[item.item_id] = (totals[item.item_id] || 0) + Number(item.quantity);
+    });
+  });
+  return totals;
 }
 
 
