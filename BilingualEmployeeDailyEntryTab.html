@@ -255,6 +255,39 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
     });
     const [editingEntryIndex, setEditingEntryIndex] = React.useState(-1);
 
+    const getCurrentEmployeeId = () => {
+        return employeeSession && employeeSession.employeeId ? employeeSession.employeeId : 'employee';
+    };
+
+    const convertInventoryDataToNestedFormat = (inventory) => {
+        const result = { rawProteins: {}, marinatedProteins: {}, bread: {}, highCostItems: {} };
+        const mappings = {
+            chicken_breast: { category: 'rawProteins', legacy: 'frozen_chicken_breast' },
+            chicken_shawarma: { category: 'rawProteins', legacy: 'chicken_shawarma' },
+            steak: { category: 'rawProteins', legacy: 'steak' },
+            fahita_chicken: { category: 'marinatedProteins', legacy: 'fahita_chicken' },
+            chicken_sub: { category: 'marinatedProteins', legacy: 'chicken_sub' },
+            spicy_strips: { category: 'marinatedProteins', legacy: 'spicy_strips' },
+            original_strips: { category: 'marinatedProteins', legacy: 'original_strips' },
+            marinated_steak: { category: 'marinatedProteins', legacy: 'marinated_steak' },
+            saj_bread: { category: 'bread', legacy: 'saj_bread' },
+            pita_bread: { category: 'bread', legacy: 'pita_bread' },
+            bread_roll: { category: 'bread', legacy: 'bread_rolls' },
+            cream: { category: 'highCostItems', legacy: 'cream' },
+            mayo: { category: 'highCostItems', legacy: 'mayo' }
+        };
+        Object.keys(mappings).forEach(key => {
+            const map = mappings[key];
+            ['opening','received','expired','remaining'].forEach(suffix => {
+                const flatKey = key + '_' + suffix;
+                if (inventory && inventory.hasOwnProperty(flatKey)) {
+                    result[map.category][map.legacy + '_' + suffix] = inventory[flatKey];
+                }
+            });
+        });
+        return result;
+    };
+
     const INVENTORY_CONFIG = {
         rawProteins: {
             titleKey: 'frozenRawProteins',
@@ -445,86 +478,30 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                             const data = JSON.parse(dataResult);
                             
                             if (data.dataFound) {
+                                const nestedInventory = convertInventoryDataToNestedFormat(data.inventory || {});
                                 setFormData({
                                     shawarmaStack: {
-                                        starting_weight: data.shawarma ? String(data.shawarma.starting_weight_kg || '') : '',
-                                        remaining_weight: data.shawarma ? String(data.shawarma.remaining_weight_kg || '') : '',
-                                        shaving_weight: data.shawarma ? String(data.shawarma.shaving_weight_kg || '') : '',
-                                        staff_meals_weight: data.shawarma ? String(data.shawarma.staff_meals_weight_kg || '') : '',
-                                        orders_weight: data.shawarma ? String(data.shawarma.orders_weight_kg || '') : ''
+                                        starting_weight: data.shawarma ? String(data.shawarma.starting_weight_kg || "") : "",
+                                        remaining_weight: data.shawarma ? String(data.shawarma.remaining_weight_kg || "") : "",
+                                        shaving_weight: data.shawarma ? String(data.shawarma.shaving_weight_kg || "") : "",
+                                        staff_meals_weight: data.shawarma ? String(data.shawarma.staff_meals_weight_kg || "") : "",
+                                        orders_weight: data.shawarma ? String(data.shawarma.orders_weight_kg || "") : ""
                                     },
                                     sales: {
-                                        total_revenue: data.sales ? String(data.sales.total_revenue || '') : '',
-                                        shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : '',
-                                        cash_sales: data.sales ? String(data.sales.cash_sales || '') : '',
-                                        card_sales: data.sales ? String(data.sales.card_sales || '') : '',
-                                        delivery_aggregator_1: data.sales ? String(data.sales.delivery_aggregator_1 || '') : '',
-                                        delivery_aggregator_2: data.sales ? String(data.sales.delivery_aggregator_2 || '') : '',
-                                        other_food_revenue: data.sales ? String(data.sales.other_food_revenue || '') : '',
-                                        petty_cash_total: data.sales ? String(data.sales.petty_cash_total || '') : ''
+                                        total_revenue: data.sales ? String(data.sales.total_revenue || "") : "",
+                                        shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || "") : "",
+                                        cash_sales: data.sales ? String(data.sales.cash_sales || "") : "",
+                                        card_sales: data.sales ? String(data.sales.card_sales || "") : "",
+                                        delivery_aggregator_1: data.sales ? String(data.sales.delivery_aggregator_1 || "") : "",
+                                        delivery_aggregator_2: data.sales ? String(data.sales.delivery_aggregator_2 || "") : "",
+                                        other_food_revenue: data.sales ? String(data.sales.other_food_revenue || "") : "",
+                                        petty_cash_total: data.sales ? String(data.sales.petty_cash_total || "") : ""
                                     },
-                                    rawProteins: {
-                                        frozen_chicken_breast_opening: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_opening || '') : '',
-                                        frozen_chicken_breast_received: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_received || '') : '',
-                                        frozen_chicken_breast_expired: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_expired || '') : '',
-                                        frozen_chicken_breast_remaining: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_remaining || '') : '',
-                                        chicken_shawarma_opening: data.rawProteins ? String(data.rawProteins.chicken_shawarma_opening || '') : '',
-                                        chicken_shawarma_received: data.rawProteins ? String(data.rawProteins.chicken_shawarma_received || '') : '',
-                                        chicken_shawarma_expired: data.rawProteins ? String(data.rawProteins.chicken_shawarma_expired || '') : '',
-                                        chicken_shawarma_remaining: data.rawProteins ? String(data.rawProteins.chicken_shawarma_remaining || '') : '',
-                                        steak_opening: data.rawProteins ? String(data.rawProteins.steak_opening || '') : '',
-                                        steak_received: data.rawProteins ? String(data.rawProteins.steak_received || '') : '',
-                                        steak_expired: data.rawProteins ? String(data.rawProteins.steak_expired || '') : '',
-                                        steak_remaining: data.rawProteins ? String(data.rawProteins.steak_remaining || '') : ''
-                                    },
-                                    marinatedProteins: {
-                                        fahita_chicken_opening: data.marinatedProteins ? String(data.marinatedProteins.fahita_chicken_opening || '') : '',
-                                        fahita_chicken_received: data.marinatedProteins ? String(data.marinatedProteins.fahita_chicken_received || '') : '',
-                                        fahita_chicken_expired: data.marinatedProteins ? String(data.marinatedProteins.fahita_chicken_expired || '') : '',
-                                        fahita_chicken_remaining: data.marinatedProteins ? String(data.marinatedProteins.fahita_chicken_remaining || '') : '',
-                                        chicken_sub_opening: data.marinatedProteins ? String(data.marinatedProteins.chicken_sub_opening || '') : '',
-                                        chicken_sub_received: data.marinatedProteins ? String(data.marinatedProteins.chicken_sub_received || '') : '',
-                                        chicken_sub_expired: data.marinatedProteins ? String(data.marinatedProteins.chicken_sub_expired || '') : '',
-                                        chicken_sub_remaining: data.marinatedProteins ? String(data.marinatedProteins.chicken_sub_remaining || '') : '',
-                                        spicy_strips_opening: data.marinatedProteins ? String(data.marinatedProteins.spicy_strips_opening || '') : '',
-                                        spicy_strips_received: data.marinatedProteins ? String(data.marinatedProteins.spicy_strips_received || '') : '',
-                                        spicy_strips_expired: data.marinatedProteins ? String(data.marinatedProteins.spicy_strips_expired || '') : '',
-                                        spicy_strips_remaining: data.marinatedProteins ? String(data.marinatedProteins.spicy_strips_remaining || '') : '',
-                                        original_strips_opening: data.marinatedProteins ? String(data.marinatedProteins.original_strips_opening || '') : '',
-                                        original_strips_received: data.marinatedProteins ? String(data.marinatedProteins.original_strips_received || '') : '',
-                                        original_strips_expired: data.marinatedProteins ? String(data.marinatedProteins.original_strips_expired || '') : '',
-                                        original_strips_remaining: data.marinatedProteins ? String(data.marinatedProteins.original_strips_remaining || '') : '',
-    // ADD THESE LINES:
-    marinated_steak_opening: data.marinatedProteins ? String(data.marinatedProteins.marinated_steak_opening || '') : '',
-    marinated_steak_received: data.marinatedProteins ? String(data.marinatedProteins.marinated_steak_received || '') : '',
-    marinated_steak_expired: data.marinatedProteins ? String(data.marinatedProteins.marinated_steak_expired || '') : '',
-    marinated_steak_remaining: data.marinatedProteins ? String(data.marinatedProteins.marinated_steak_remaining || '') : ''
-                                    },
-                                    bread: {
-                                        saj_bread_opening: data.bread ? String(data.bread.saj_bread_opening || '') : '',
-                                        saj_bread_received: data.bread ? String(data.bread.saj_bread_received || '') : '',
-                                        saj_bread_expired: data.bread ? String(data.bread.saj_bread_expired || '') : '',
-                                        saj_bread_remaining: data.bread ? String(data.bread.saj_bread_remaining || '') : '',
-                                        pita_bread_opening: data.bread ? String(data.bread.pita_bread_opening || '') : '',
-                                        pita_bread_received: data.bread ? String(data.bread.pita_bread_received || '') : '',
-                                        pita_bread_expired: data.bread ? String(data.bread.pita_bread_expired || '') : '',
-                                        pita_bread_remaining: data.bread ? String(data.bread.pita_bread_remaining || '') : '',
-                                        bread_rolls_opening: data.bread ? String(data.bread.bread_rolls_opening || '') : '',
-                                        bread_rolls_received: data.bread ? String(data.bread.bread_rolls_received || '') : '',
-                                        bread_rolls_expired: data.bread ? String(data.bread.bread_rolls_expired || '') : '',
-                                        bread_rolls_remaining: data.bread ? String(data.bread.bread_rolls_remaining || '') : ''
-                                    },
-                                    highCostItems: {
-                                        cream_opening: data.highCostItems ? String(data.highCostItems.cream_opening || '') : '',
-                                        cream_received: data.highCostItems ? String(data.highCostItems.cream_received || '') : '',
-                                        cream_expired: data.highCostItems ? String(data.highCostItems.cream_expired || '') : '',
-                                        cream_remaining: data.highCostItems ? String(data.highCostItems.cream_remaining || '') : '',
-                                        mayo_opening: data.highCostItems ? String(data.highCostItems.mayo_opening || '') : '',
-                                        mayo_received: data.highCostItems ? String(data.highCostItems.mayo_received || '') : '',
-                                        mayo_expired: data.highCostItems ? String(data.highCostItems.mayo_expired || '') : '',
-                                        mayo_remaining: data.highCostItems ? String(data.highCostItems.mayo_remaining || '') : ''
-                                    },
-                                    notes: data.notes || ''
+                                    rawProteins: nestedInventory.rawProteins,
+                                    marinatedProteins: nestedInventory.marinatedProteins,
+                                    bread: nestedInventory.bread,
+                                    highCostItems: nestedInventory.highCostItems,
+                                    notes: data.notes || ""
                                 });
                                 setPettyCashEntries(data.pettyCashEntries || []);
                             }
@@ -635,6 +612,35 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
         setLoading(true);
         
         try {
+            const inventory = {
+                chicken_breast_remaining: formData.rawProteins.frozen_chicken_breast_remaining,
+                chicken_breast_received: formData.rawProteins.frozen_chicken_breast_received,
+                chicken_shawarma_remaining: formData.rawProteins.chicken_shawarma_remaining,
+                chicken_shawarma_received: formData.rawProteins.chicken_shawarma_received,
+                steak_remaining: formData.rawProteins.steak_remaining,
+                steak_received: formData.rawProteins.steak_received,
+                fahita_chicken_remaining: formData.marinatedProteins.fahita_chicken_remaining,
+                fahita_chicken_received: formData.marinatedProteins.fahita_chicken_received,
+                chicken_sub_remaining: formData.marinatedProteins.chicken_sub_remaining,
+                chicken_sub_received: formData.marinatedProteins.chicken_sub_received,
+                spicy_strips_remaining: formData.marinatedProteins.spicy_strips_remaining,
+                spicy_strips_received: formData.marinatedProteins.spicy_strips_received,
+                original_strips_remaining: formData.marinatedProteins.original_strips_remaining,
+                original_strips_received: formData.marinatedProteins.original_strips_received,
+                marinated_steak_remaining: formData.marinatedProteins.marinated_steak_remaining,
+                marinated_steak_received: formData.marinatedProteins.marinated_steak_received,
+                saj_bread_remaining: formData.bread.saj_bread_remaining,
+                saj_bread_received: formData.bread.saj_bread_received,
+                pita_bread_remaining: formData.bread.pita_bread_remaining,
+                pita_bread_received: formData.bread.pita_bread_received,
+                bread_roll_remaining: formData.bread.bread_rolls_remaining,
+                bread_roll_received: formData.bread.bread_rolls_received,
+                cream_remaining: formData.highCostItems.cream_remaining,
+                cream_received: formData.highCostItems.cream_received,
+                mayo_remaining: formData.highCostItems.mayo_remaining,
+                mayo_received: formData.highCostItems.mayo_received
+            };
+
             const entryData = {
                 date: selectedDate,
                 shawarmaStack: formData.shawarmaStack,
@@ -643,15 +649,12 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                     other_food_revenue: calculateOtherFoodRevenue(),
                     petty_cash_total: calculatePettyCashTotal()
                 },
-                rawProteins: formData.rawProteins,
-                marinatedProteins: formData.marinatedProteins,
-                bread: formData.bread,
-                highCostItems: formData.highCostItems,
                 pettyCashEntries: pettyCashEntries,
+                inventory: inventory,
                 notes: formData.notes,
                 isUpdate: isUpdateMode,
                 managementPin: isUpdateMode ? managementPin : null,
-                employeeId: employeeSession.employeeId
+                employeeId: getCurrentEmployeeId()
             };
             
             await google.script.run
@@ -672,7 +675,7 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                     alert('Error saving entry: ' + error.message);
                     setLoading(false);
                 })
-                .saveDailyEntry(entryData);
+                .saveDailyEntryWithEnhancedLogging(entryData);
                 
         } catch (error) {
             alert('Error submitting form: ' + error.message);

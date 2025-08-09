@@ -185,6 +185,29 @@ const MIGRATION_CONFIG = {
   validateMigration: true
 };
 
+const INVENTORY_FIELD_MAPPINGS = {
+  chicken_breast: { category: 'rawProteins', legacy: 'frozen_chicken_breast' },
+  chicken_shawarma: { category: 'rawProteins', legacy: 'chicken_shawarma' },
+  steak: { category: 'rawProteins', legacy: 'steak' },
+  fahita_chicken: { category: 'marinatedProteins', legacy: 'fahita_chicken' },
+  chicken_sub: { category: 'marinatedProteins', legacy: 'chicken_sub' },
+  spicy_strips: { category: 'marinatedProteins', legacy: 'spicy_strips' },
+  original_strips: { category: 'marinatedProteins', legacy: 'original_strips' },
+  marinated_steak: { category: 'marinatedProteins', legacy: 'marinated_steak' },
+  saj_bread: { category: 'bread', legacy: 'saj_bread' },
+  pita_bread: { category: 'bread', legacy: 'pita_bread' },
+  bread_roll: { category: 'bread', legacy: 'bread_rolls' },
+  cream: { category: 'highCostItems', legacy: 'cream' },
+  mayo: { category: 'highCostItems', legacy: 'mayo' }
+};
+
+const INVENTORY_LEGACY_TO_FLAT = {};
+for (var k in INVENTORY_FIELD_MAPPINGS) {
+  if (INVENTORY_FIELD_MAPPINGS.hasOwnProperty(k)) {
+    INVENTORY_LEGACY_TO_FLAT[INVENTORY_FIELD_MAPPINGS[k].legacy] = k;
+  }
+}
+
 function logMigrationActivity(activity, details, status = 'info') {
   if (!MIGRATION_CONFIG.logMigration) return;
 
@@ -208,6 +231,91 @@ function logMigrationActivity(activity, details, status = 'info') {
     }
   } catch (error) {
     console.log('Failed to write migration log:', error);
+  }
+}
+
+function convertInventoryDataToNestedFormat(inventory) {
+  var result = { rawProteins: {}, marinatedProteins: {}, bread: {}, highCostItems: {} };
+  if (!inventory) return result;
+  for (var key in INVENTORY_FIELD_MAPPINGS) {
+    if (INVENTORY_FIELD_MAPPINGS.hasOwnProperty(key)) {
+      var map = INVENTORY_FIELD_MAPPINGS[key];
+      ['opening', 'received', 'expired', 'remaining'].forEach(function(suffix) {
+        var flatKey = key + '_' + suffix;
+        if (inventory.hasOwnProperty(flatKey) && inventory[flatKey] !== undefined && inventory[flatKey] !== null && inventory[flatKey] !== '') {
+          result[map.category][map.legacy + '_' + suffix] = inventory[flatKey];
+        }
+      });
+    }
+  }
+  return result;
+}
+
+function convertLegacyInventoryToFlat(legacy) {
+  var flat = {};
+  if (!legacy) return flat;
+  for (var key in INVENTORY_FIELD_MAPPINGS) {
+    if (INVENTORY_FIELD_MAPPINGS.hasOwnProperty(key)) {
+      var map = INVENTORY_FIELD_MAPPINGS[key];
+      var catObj = legacy[map.category] || {};
+      ['opening', 'received', 'expired', 'remaining'].forEach(function(suffix) {
+        var legacyKey = map.legacy + '_' + suffix;
+        if (catObj.hasOwnProperty(legacyKey) && catObj[legacyKey] !== undefined && catObj[legacyKey] !== '') {
+          flat[key + '_' + suffix] = catObj[legacyKey];
+        }
+      });
+    }
+  }
+  return flat;
+}
+
+function mapSnapshotLogToFormFormat(snapshotEntries) {
+  var items = getSheetData('Item');
+  var itemMap = {};
+  items.forEach(function(it) { itemMap[it.id] = it; });
+  var flat = {};
+  snapshotEntries.forEach(function(entry) {
+    var item = itemMap[entry.item_id];
+    if (!item || !item.legacy_key) return;
+    var flatKey = INVENTORY_LEGACY_TO_FLAT[item.legacy_key] || item.legacy_key;
+    flat[flatKey + '_remaining'] = entry.closing_quantity;
+  });
+  return flat;
+}
+
+function validateInventoryDataStructure(data) {
+  var result = { valid: true, message: '' };
+  if (!data) {
+    result.valid = false;
+    result.message = 'Missing inventory data';
+    return result;
+  }
+  for (var key in data) {
+    if (data.hasOwnProperty(key)) {
+      var val = data[key];
+      if (val !== '' && val !== null && isNaN(parseFloat(val))) {
+        result.valid = false;
+        result.message = 'Invalid number for ' + key;
+        return result;
+      }
+    }
+  }
+  return result;
+}
+
+function saveDailyEntryWithEnhancedLogging(entryData) {
+  logMigrationActivity('saveDailyEntry_received', { entryData: entryData }, 'info');
+  var validation = validateInventoryDataStructure(entryData.inventory);
+  if (!validation.valid) {
+    return JSON.stringify({ success: false, message: validation.message });
+  }
+  try {
+    var result = saveDailyEntry(entryData);
+    logMigrationActivity('saveDailyEntry_complete', { success: true }, 'success');
+    return result;
+  } catch (e) {
+    logMigrationActivity('saveDailyEntry_failure', { error: e.message }, 'error');
+    throw e;
   }
 }
 
@@ -808,6 +916,14 @@ function saveDailyEntryToNewTables(entryData) {
   const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
   const employeeId = entryData.employeeId || 'unknown';
 
+  if (entryData.inventory && !entryData.rawProteins) {
+    var converted = convertInventoryDataToNestedFormat(entryData.inventory);
+    entryData.rawProteins = converted.rawProteins;
+    entryData.marinatedProteins = converted.marinatedProteins;
+    entryData.bread = converted.bread;
+    entryData.highCostItems = converted.highCostItems;
+  }
+
   if (entryData.shawarmaStack) {
     saveShawarmaStackData(entryData, entryDate, employeeId);
   }
@@ -831,6 +947,14 @@ function saveDailyEntryToNewTables(entryData) {
 function saveDailyEntryToOldTables(entryData) {
   const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
   const employeeId = entryData.employeeId || 'unknown';
+
+  if (entryData.inventory && !entryData.rawProteins) {
+    var converted = convertInventoryDataToNestedFormat(entryData.inventory);
+    entryData.rawProteins = converted.rawProteins;
+    entryData.marinatedProteins = converted.marinatedProteins;
+    entryData.bread = converted.bread;
+    entryData.highCostItems = converted.highCostItems;
+  }
 
   if (entryData.rawProteins) {
     saveRawProteinsData(entryData, entryDate, employeeId);
@@ -1002,6 +1126,7 @@ function generateReportFromNewTables(targetDateString) {
   let marinatedProteins = null;
   let bread = null;
   let highCostItems = null;
+  let inventory = null;
 
   if (todaySnapshot.length > 0) {
     const legacy = mapSnapshotLogToLegacyFormat(todaySnapshot);
@@ -1009,6 +1134,7 @@ function generateReportFromNewTables(targetDateString) {
     marinatedProteins = legacy.marinatedProteins;
     bread = legacy.bread;
     highCostItems = legacy.highCostItems;
+    inventory = convertLegacyInventoryToFlat(legacy);
   }
 
   return {
@@ -1020,6 +1146,7 @@ function generateReportFromNewTables(targetDateString) {
     marinatedProteins: marinatedProteins,
     bread: bread,
     highCostItems: highCostItems,
+    inventory: inventory,
     pettyCashEntries: pettyCashEntries,
     notes: ''
   };
@@ -1048,6 +1175,9 @@ function generateReportFromOldTables(targetDateString) {
   const bread = breadData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
   const highCostItems = highCostData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
 
+  const legacyData = { rawProteins: rawProteins || {}, marinatedProteins: marinatedProteins || {}, bread: bread || {}, highCostItems: highCostItems || {} };
+  const inventory = convertLegacyInventoryToFlat(legacyData);
+
   return {
     date: targetDateString,
     dataFound: !!(todayShawarma || todaySales || rawProteins || marinatedProteins || bread || highCostItems),
@@ -1057,6 +1187,7 @@ function generateReportFromOldTables(targetDateString) {
     marinatedProteins: marinatedProteins,
     bread: bread,
     highCostItems: highCostItems,
+    inventory: inventory,
     pettyCashEntries: pettyCashEntries,
     notes: ''
   };
@@ -1855,6 +1986,66 @@ function getAllLegacyKeyMappings() {
     }
   });
   return map;
+}
+
+function populateCompleteItemTable() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Item');
+  const existing = getSheetData('Item');
+  const existingMap = {};
+  existing.forEach(function(it) {
+    existingMap[it.name + '|' + it.category] = true;
+  });
+
+  const rows = [];
+  const now = new Date();
+
+  const requiredItems = [
+    { name: 'frozen_chicken_breast', category: 'Raw Proteins', legacy_key: 'frozen_chicken_breast', frequency: 'daily' },
+    { name: 'chicken_shawarma', category: 'Raw Proteins', legacy_key: 'chicken_shawarma', frequency: 'daily' },
+    { name: 'steak', category: 'Raw Proteins', legacy_key: 'steak', frequency: 'daily' },
+    { name: 'fahita_chicken', category: 'Marinated Proteins', legacy_key: 'fahita_chicken', frequency: 'daily' },
+    { name: 'chicken_sub', category: 'Marinated Proteins', legacy_key: 'chicken_sub', frequency: 'daily' },
+    { name: 'spicy_strips', category: 'Marinated Proteins', legacy_key: 'spicy_strips', frequency: 'daily' },
+    { name: 'original_strips', category: 'Marinated Proteins', legacy_key: 'original_strips', frequency: 'daily' },
+    { name: 'marinated_steak', category: 'Marinated Proteins', legacy_key: 'marinated_steak', frequency: 'daily' },
+    { name: 'saj_bread', category: 'Bread', legacy_key: 'saj_bread', frequency: 'daily' },
+    { name: 'pita_bread', category: 'Bread', legacy_key: 'pita_bread', frequency: 'daily' },
+    { name: 'bread_rolls', category: 'Bread', legacy_key: 'bread_rolls', frequency: 'daily' },
+    { name: 'cream', category: 'High Cost Items', legacy_key: 'cream', frequency: 'daily' },
+    { name: 'mayo', category: 'High Cost Items', legacy_key: 'mayo', frequency: 'daily' }
+  ];
+
+  requiredItems.forEach(function(item) {
+    const key = item.name + '|' + item.category;
+    if (!existingMap[key]) {
+      rows.push([Utilities.getUuid(), item.name, item.category, '', item.frequency, false, '', '', '', '', item.legacy_key, true, now, now]);
+      existingMap[key] = true;
+    }
+  });
+
+  const products = getSheetData('Products');
+  products.forEach(function(p) {
+    const key = p.name + '|' + (p.category || 'Product');
+    if (!existingMap[key]) {
+      rows.push([Utilities.getUuid(), p.name, p.category || 'Product', '', 'weekly', true, '', '', '', '', '', true, now, now]);
+      existingMap[key] = true;
+    }
+  });
+
+  const ingredients = getSheetData('Ingredients');
+  ingredients.forEach(function(i) {
+    const key = i.name + '|' + (i.category || 'Ingredient');
+    if (!existingMap[key]) {
+      rows.push([Utilities.getUuid(), i.name, i.category || 'Ingredient', i.unit || '', 'weekly', false, '', '', '', '', '', true, now, now]);
+      existingMap[key] = true;
+    }
+  });
+
+  if (rows.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  }
+  return rows.length;
 }
 
 function getItemsByCategory(category) {
