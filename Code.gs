@@ -2794,3 +2794,291 @@ function getLatestDataDate() {
   return latest ? latest.toISOString().split('T')[0] : null;
 }
 
+// ---------------------------
+// Comprehensive historical migration
+// ---------------------------
+
+function executeFullHistoricalMigration(options) {
+  const startTime = new Date();
+  const config = {
+    startDate: options && options.startDate ? options.startDate : null,
+    endDate: options && options.endDate ? options.endDate : null,
+    batchSize: options && options.batchSize ? options.batchSize : 10,
+    validateEach: options && options.validateEach !== false
+  };
+
+  const allDates = getHistoricalDataDates(config.startDate, config.endDate);
+  const summary = {
+    success: true,
+    totalDates: allDates.length,
+    migratedDates: 0,
+    validatedDates: 0,
+    errorDates: 0,
+    errors: [],
+    timeElapsed: '',
+    summary: ''
+  };
+
+  for (let i = 0; i < allDates.length; i += config.batchSize) {
+    const batch = allDates.slice(i, i + config.batchSize);
+    batch.forEach(function(dateStr) {
+      try {
+        const oldData = generateReportFromOldTables(dateStr);
+        if (!oldData || !oldData.dataFound) {
+          return;
+        }
+
+        const existing = generateReportFromNewTables(dateStr);
+        if (!(existing && existing.dataFound)) {
+          const converted = convertOldDataToNewFormat(oldData);
+          saveDailyEntryToNewTables(converted);
+        }
+        summary.migratedDates++;
+
+        if (config.validateEach) {
+          const val = validateMigratedDate(dateStr);
+          if (val.isValid) {
+            summary.validatedDates++;
+          } else {
+            summary.errorDates++;
+            summary.errors.push({ date: dateStr, error: val.errors.join(', ') });
+            summary.success = false;
+          }
+        }
+      } catch (err) {
+        summary.errorDates++;
+        summary.success = false;
+        summary.errors.push({ date: dateStr, error: err.message });
+        logMigrationActivity('historical_migration_error', { date: dateStr, error: err.message }, 'error');
+      }
+    });
+
+    logMigrationActivity('historical_migration_progress', {
+      processed: Math.min(i + config.batchSize, allDates.length),
+      total: allDates.length,
+      migrated: summary.migratedDates,
+      errors: summary.errorDates
+    }, 'info');
+  }
+
+  summary.timeElapsed = ((new Date().getTime() - startTime.getTime()) / 1000) + 's';
+  summary.summary = 'Migrated ' + summary.migratedDates + ' of ' + summary.totalDates + ' dates';
+  logMigrationActivity('historical_migration_complete', summary, summary.success ? 'success' : 'warning');
+  return summary;
+}
+
+// ---------------------------
+// Complete migration validation
+// ---------------------------
+
+function validateCompleteDataMigration(options) {
+  const config = {
+    sampleSize: options && options.sampleSize ? options.sampleSize : 50,
+    fullValidation: options && options.fullValidation ? true : false
+  };
+
+  const allDates = getHistoricalDataDates();
+  let datesToCheck = [];
+  if (config.fullValidation || config.sampleSize >= allDates.length) {
+    datesToCheck = allDates;
+  } else {
+    const shuffled = allDates.sort(() => 0.5 - Math.random());
+    datesToCheck = shuffled.slice(0, config.sampleSize);
+  }
+
+  const details = [];
+  let successful = 0;
+  let failed = 0;
+  let warnings = 0;
+
+  const mappings = getAllLegacyKeyMappings();
+  const items = getSheetData('Item');
+  const missingLegacy = items.filter(function(it) { return !it.legacy_key; });
+  if (missingLegacy.length > 0) {
+    warnings++;
+    details.push({ date: 'N/A', status: 'warning', issues: ['Items missing legacy keys: ' + missingLegacy.length], oldDataFound: false, newDataFound: false });
+  }
+
+  datesToCheck.forEach(function(dateStr) {
+    const oldData = generateReportFromOldTables(dateStr);
+    const newData = generateReportFromNewTables(dateStr);
+    const oldFound = oldData && oldData.dataFound;
+    const newFound = newData && newData.dataFound;
+    let status = 'pass';
+    let issues = [];
+
+    if (!oldFound || !newFound) {
+      status = 'fail';
+      issues.push('Missing data in source or target');
+    } else {
+      const validation = validateMigratedDate(dateStr);
+      if (!validation.isValid) {
+        status = 'fail';
+        issues = validation.errors;
+      }
+    }
+
+    if (status === 'pass') successful++; else failed++;
+
+    details.push({
+      date: dateStr,
+      status: status,
+      issues: issues,
+      oldDataFound: oldFound,
+      newDataFound: newFound
+    });
+  });
+
+  const overall = failed > 0 ? 'fail' : (warnings > 0 ? 'warning' : 'pass');
+  const result = {
+    overall: overall,
+    totalDatesChecked: datesToCheck.length,
+    successfulValidations: successful,
+    failedValidations: failed,
+    warnings: warnings,
+    details: details,
+    recommendations: []
+  };
+
+  if (failed > 0) {
+    result.recommendations.push('Review failed validation dates and correct data discrepancies');
+  }
+  if (warnings > 0) {
+    result.recommendations.push('Address warnings to ensure data completeness');
+  }
+
+  return result;
+}
+
+// ---------------------------
+// Reporting and log export
+// ---------------------------
+
+function createMigrationReport(migrationResult, validationResult) {
+  const report = {
+    timestamp: new Date().toISOString(),
+    migration: migrationResult,
+    validation: validationResult,
+    recommendations: [],
+    performance: {}
+  };
+
+  if (!(migrationResult && migrationResult.success)) {
+    report.recommendations.push('Migration completed with errors. Review the error log.');
+  }
+  if (validationResult && validationResult.overall !== 'pass') {
+    report.recommendations.push('Validation reported issues. Investigate before disabling old tables.');
+  }
+
+  return report;
+}
+
+function exportMigrationLog(format, options) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('MigrationLog');
+  if (!sheet) return '';
+
+  const data = sheet.getDataRange().getValues();
+  const headers = data.shift();
+
+  let rows = data;
+  if (options && (options.startDate || options.endDate || options.activity)) {
+    rows = rows.filter(function(r) {
+      const date = r[0];
+      if (options.startDate && date < options.startDate) return false;
+      if (options.endDate && date > options.endDate) return false;
+      if (options.activity && r[1] !== options.activity) return false;
+      return true;
+    });
+  }
+
+  if (format === 'csv') {
+    const all = [headers.join(',')];
+    rows.forEach(function(r) { all.push(r.join(',')); });
+    return all.join('\n');
+  }
+
+  const json = rows.map(function(r) {
+    const obj = {};
+    headers.forEach(function(h, i) { obj[h] = r[i]; });
+    return obj;
+  });
+  return JSON.stringify(json);
+}
+
+// ---------------------------
+// Inventory data fetch for dashboard
+// ---------------------------
+
+function fetchInventoryData(dateRange) {
+  const targetDate = dateRange && dateRange.startDate ? dateRange.startDate : (new Date().toISOString().split('T')[0]);
+  const snapshot = getSheetData('SnapshotLog');
+  const items = getSheetData('Item');
+  const itemMap = {};
+  items.forEach(function(it) { itemMap[it.id] = it; });
+
+  const entries = snapshot.filter(function(s) {
+    return s.date && s.date.toString().slice(0,10) === targetDate;
+  });
+
+  let dataSource = 'new_tables';
+  let categories = {};
+
+  if (entries.length > 0) {
+    entries.forEach(function(e) {
+      const item = itemMap[e.item_id];
+      if (!item) return;
+      if (!categories[item.category]) categories[item.category] = [];
+      categories[item.category].push({
+        name: item.name,
+        quantity: parseFloat(e.closing_quantity) || 0,
+        unit: item.unit,
+        date: e.date,
+        notes: e.notes || ''
+      });
+    });
+  } else {
+    dataSource = 'old_tables';
+    const legacy = generateReportFromOldTables(new Date(targetDate).toDateString());
+    if (legacy && legacy.dataFound) {
+      categories = convertLegacyReportToCategories(legacy);
+    }
+  }
+
+  const summary = { totalItems: 0, zeroStock: 0, lowStock: 0, lastUpdated: targetDate };
+  Object.keys(categories).forEach(function(cat) {
+    categories[cat].forEach(function(it) {
+      summary.totalItems++;
+      if (it.quantity === 0) summary.zeroStock++;
+      if (it.quantity > 0 && it.quantity <= 0.5) summary.lowStock++;
+    });
+  });
+
+  return { dataSource: dataSource, categories: categories, summary: summary };
+}
+
+function convertLegacyReportToCategories(report) {
+  const map = {
+    rawProteins: 'Raw Proteins',
+    marinatedProteins: 'Marinated Proteins',
+    bread: 'Bread',
+    highCostItems: 'High Cost Items'
+  };
+  const categories = {};
+  Object.keys(map).forEach(function(section) {
+    const data = report[section];
+    if (!data) return;
+    const catName = map[section];
+    categories[catName] = [];
+    Object.keys(data).forEach(function(key) {
+      if (key.indexOf('_remaining') !== -1) {
+        const itemName = key.replace('_remaining', '').replace(/_/g, ' ');
+        categories[catName].push({ name: itemName, quantity: parseFloat(data[key]) || 0, unit: '', date: report.date, notes: '' });
+      }
+    });
+    if (categories[catName].length === 0) delete categories[catName];
+  });
+  return categories;
+}
+
+

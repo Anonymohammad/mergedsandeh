@@ -1,0 +1,103 @@
+<script type="text/babel">
+function MigrationControlPanel() {
+  const [progress, setProgress] = React.useState({ totalDates: 0, migratedDates: 0 });
+  const [log, setLog] = React.useState([]);
+  const [batchSize, setBatchSize] = React.useState(10);
+  const [startDate, setStartDate] = React.useState('');
+  const [endDate, setEndDate] = React.useState('');
+  const [validateEach, setValidateEach] = React.useState(true);
+  const [running, setRunning] = React.useState(false);
+  const [report, setReport] = React.useState(null);
+
+  React.useEffect(function() {
+    loadStatus();
+  }, []);
+
+  function loadStatus() {
+    google.script.run.withSuccessHandler(function(res) {
+      setProgress(res);
+    }).getMigrationProgress();
+  }
+
+  function handleStart() {
+    setRunning(true);
+    setLog([]);
+    google.script.run
+      .withSuccessHandler(function(res) {
+        setRunning(false);
+        setReport(res);
+        loadStatus();
+      })
+      .withFailureHandler(function(err) {
+        setRunning(false);
+        setLog(function(l) { return l.concat(['Error: ' + err.message]); });
+      })
+      .executeFullHistoricalMigration({
+        startDate: startDate || null,
+        endDate: endDate || null,
+        batchSize: parseInt(batchSize, 10),
+        validateEach: validateEach
+      });
+  }
+
+  function handleValidate() {
+    google.script.run.withSuccessHandler(function(res) {
+      setReport(res);
+    }).validateCompleteDataMigration({ fullValidation: true });
+  }
+
+  function handleRollback() {
+    google.script.run.rollbackMigration();
+  }
+
+  function handleExport() {
+    google.script.run.withSuccessHandler(function(res) {
+      const blob = new Blob([res], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'migration_log.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    }).exportMigrationLog('json');
+  }
+
+  return (
+    <div className="p-4">
+      <h2 className="text-xl font-bold mb-4">Migration Control Panel</h2>
+      <div className="mb-4">
+        <div>Progress: {progress.migratedDates}/{progress.totalDates}</div>
+        <div className="w-full bg-gray-200 h-3 rounded">
+          <div className="bg-blue-500 h-3 rounded" style={{ width: (progress.totalDates > 0 ? (progress.migratedDates / progress.totalDates * 100) : 0) + '%'}}></div>
+        </div>
+      </div>
+      <div className="space-y-2 mb-4">
+        <input type="date" value={startDate} onChange={function(e) { setStartDate(e.target.value); }} />
+        <input type="date" value={endDate} onChange={function(e) { setEndDate(e.target.value); }} />
+        <input type="number" className="border p-1" value={batchSize} onChange={function(e) { setBatchSize(e.target.value); }} />
+        <label className="flex items-center space-x-2">
+          <input type="checkbox" checked={validateEach} onChange={function(e) { setValidateEach(e.target.checked); }} />
+          <span>Validate each date</span>
+        </label>
+      </div>
+      <div className="space-x-2 mb-4">
+        <button className="px-3 py-1 bg-green-600 text-white" onClick={handleStart} disabled={running}>Start Full Migration</button>
+        <button className="px-3 py-1 bg-blue-600 text-white" onClick={handleValidate}>Validate Migration</button>
+        <button className="px-3 py-1 bg-red-600 text-white" onClick={handleRollback}>Rollback Migration</button>
+        <button className="px-3 py-1 bg-gray-600 text-white" onClick={handleExport}>Export Migration Report</button>
+      </div>
+      {running && <div className="mb-4">Migrating...</div>}
+      <div className="h-32 overflow-auto bg-gray-100 p-2 mb-4">
+        {log.map(function(entry, idx) { return <div key={idx}>{entry}</div>; })}
+      </div>
+      {report && (
+        <div className="bg-white p-4 border">
+          <pre className="text-xs overflow-auto" style={{ maxHeight: '200px' }}>{JSON.stringify(report, null, 2)}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+window.MigrationControlPanel = MigrationControlPanel;
+</script>

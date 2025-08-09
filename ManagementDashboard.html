@@ -114,6 +114,60 @@ function ManagementDashboard() {
         return 1.0;
     };
 
+    const getInventoryData = (dateRange) => {
+        return new Promise((resolve, reject) => {
+            google.script.run
+                .withSuccessHandler(resolve)
+                .withFailureHandler(reject)
+                .fetchInventoryData(dateRange);
+        });
+    };
+
+    const calculateInventoryMetrics = (inventoryData) => {
+        const metrics = {
+            itemsTracked: 0,
+            zeroStock: 0,
+            lowStock: 0,
+            categoryLevels: {}
+        };
+        if (!inventoryData || !inventoryData.categories) return metrics;
+
+        Object.keys(inventoryData.categories).forEach(cat => {
+            inventoryData.categories[cat].forEach(item => {
+                metrics.itemsTracked++;
+                if (item.quantity === 0) metrics.zeroStock++;
+                if (item.quantity > 0 && item.quantity <= 0.5) metrics.lowStock++;
+                if (!metrics.categoryLevels[cat]) metrics.categoryLevels[cat] = 0;
+                metrics.categoryLevels[cat] += item.quantity;
+            });
+        });
+        return metrics;
+    };
+
+    function getInventoryTurnover(categoryFilter, daysPeriod) {
+        return { category: categoryFilter, period: daysPeriod, turnoverRate: 0 };
+    }
+
+    function getInventoryValue(targetDate) {
+        return { date: targetDate, total: 0, categories: {} };
+    }
+
+    function getStockAlerts() {
+        return [];
+    }
+
+    function getInventoryTrends(period = 30) {
+        return { period: period, trends: [] };
+    }
+
+    function ensureDataCompatibility(rawData, sourceType) {
+        return rawData;
+    }
+
+    function getDataSourceStatus() {
+        return {};
+    }
+
     const loadDashboardData = async () => {
         if (dashboardData) {
             setCardLoading({
@@ -158,11 +212,19 @@ function ManagementDashboard() {
                             parsedData.processed_analytics = processEnhancedAnalytics(parsedData.enhanced_analytics);
                         }
 
-                        setDashboardData(parsedData);
-                        generateAlerts(parsedData);
-
-                        setLoading(false);
-                        setCardLoading({ metrics: false, shawarma: false, sales: false, inventory: false });
+                        getInventoryData({ startDate: dateParam, endDate: dateParam }).then(inv => {
+                            parsedData.inventoryData = inv;
+                            parsedData.inventoryMetrics = calculateInventoryMetrics(inv);
+                            setDashboardData(parsedData);
+                            generateAlerts(parsedData);
+                            setLoading(false);
+                            setCardLoading({ metrics: false, shawarma: false, sales: false, inventory: false });
+                        }).catch(err => {
+                            console.error('Inventory fetch error:', err);
+                            setDashboardData(parsedData);
+                            setLoading(false);
+                            setCardLoading({ metrics: false, shawarma: false, sales: false, inventory: false });
+                        });
                     } catch (parseError) {
                         console.error('Error parsing dashboard data:', parseError);
                         setLoading(false);
@@ -1536,6 +1598,11 @@ function ManagementDashboard() {
                             </div>
                         </div>
 
+                        <InventoryOverview data={dashboardData && dashboardData.inventoryData} />
+                        <CategoryBreakdown categories={dashboardData && dashboardData.inventoryData ? dashboardData.inventoryData.categories : null} />
+                        <InventoryCharts data={dashboardData && dashboardData.inventoryData} />
+                        <StockAlertsPanel alerts={getStockAlerts()} />
+
                         {/* Debug Data Toggle */}
                         <div className="mt-6 border-t pt-4">
                             <button
@@ -1564,6 +1631,54 @@ function ManagementDashboard() {
         </div>
     );
 }
+
+const InventoryOverview = ({ data }) => {
+    if (!data) return <div className="mb-4">No inventory data</div>;
+    return (
+        <div className="mb-4 p-4 border rounded">
+            <div className="font-medium">Data Source: {data.dataSource}</div>
+            <div>Total Items: {data.summary ? data.summary.totalItems : 0}</div>
+            <div>Zero Stock: {data.summary ? data.summary.zeroStock : 0}</div>
+            <div>Low Stock: {data.summary ? data.summary.lowStock : 0}</div>
+        </div>
+    );
+};
+
+const CategoryBreakdown = ({ categories }) => {
+    if (!categories) return null;
+    return (
+        <div className="mb-4">
+            {Object.keys(categories).map(cat => (
+                <div key={cat} className="mb-2">
+                    <h4 className="font-medium">{cat}</h4>
+                    <ul className="ml-4 list-disc">
+                        {categories[cat].map(item => (
+                            <li key={item.name}>{item.name}: {item.quantity} {item.unit}</li>
+                        ))}
+                    </ul>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+const InventoryCharts = ({ data }) => {
+    return (
+        <div className="mb-4 p-4 border rounded">Inventory charts placeholder</div>
+    );
+};
+
+const StockAlertsPanel = ({ alerts }) => {
+    if (!alerts || alerts.length === 0) return <div className="mb-4">No alerts</div>;
+    return (
+        <div className="mb-4 p-4 border rounded">
+            <h4 className="font-medium mb-2">Stock Alerts</h4>
+            <ul className="list-disc ml-4">
+                {alerts.map((a, i) => <li key={i}>{a}</li>)}
+            </ul>
+        </div>
+    );
+};
 
 window.ManagementDashboard = ManagementDashboard;
 </script>
