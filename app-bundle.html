@@ -400,9 +400,110 @@ function WasteEntryModal({ items, onClose, onSave }) {
     );
 }
 
+function PurchaseEntryModal({ items, suppliers, onClose, onSave }) {
+    const emptyRow = { item_id: '', quantity: '', cost_per_unit: '', quality: 'Good' };
+    const [header, setHeader] = React.useState({
+        supplier_id: '',
+        invoice_number: '',
+        delivery_date: new Date().toISOString().split('T')[0],
+        received_by: '',
+        notes: ''
+    });
+    const [rows, setRows] = React.useState([{ ...emptyRow }]);
+
+    const handleHeaderChange = (field, value) => {
+        setHeader(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleRowChange = (index, field, value) => {
+        setRows(prev => prev.map((r, i) => i === index ? { ...r, [field]: value } : r));
+    };
+
+    const addRow = () => setRows(prev => [...prev, { ...emptyRow }]);
+    const removeRow = (index) => setRows(prev => prev.filter((_, i) => i !== index));
+
+    const rowTotal = (row) => {
+        const q = parseFloat(row.quantity) || 0;
+        const c = parseFloat(row.cost_per_unit) || 0;
+        return q * c;
+    };
+
+    const total = rows.reduce((sum, r) => sum + rowTotal(r), 0);
+
+    const handleSubmit = () => {
+        onSave({ ...header, items: rows });
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-[1200px] max-h-[90vh] overflow-y-auto">
+                <h3 className="text-xl font-semibold mb-4">Record Delivery</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <select value={header.supplier_id} onChange={e => handleHeaderChange('supplier_id', e.target.value)} className="p-2 border rounded">
+                        <option value="">Select Supplier</option>
+                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    <input type="text" value={header.invoice_number} onChange={e => handleHeaderChange('invoice_number', e.target.value)} className="p-2 border rounded" placeholder="Invoice Number" />
+                    <input type="date" value={header.delivery_date} onChange={e => handleHeaderChange('delivery_date', e.target.value)} className="p-2 border rounded" />
+                    <input type="text" value={header.received_by} onChange={e => handleHeaderChange('received_by', e.target.value)} className="p-2 border rounded" placeholder="Received By" />
+                    <textarea value={header.notes} onChange={e => handleHeaderChange('notes', e.target.value)} className="p-2 border rounded md:col-span-2" placeholder="Delivery Notes"></textarea>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm border">
+                        <thead className="bg-gray-100">
+                            <tr>
+                                <th className="p-2 border">Item</th>
+                                <th className="p-2 border">Qty</th>
+                                <th className="p-2 border">Cost/Unit</th>
+                                <th className="p-2 border">Quality</th>
+                                <th className="p-2 border">Total</th>
+                                <th className="p-2 border"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows.map((row, idx) => (
+                                <tr key={idx}>
+                                    <td className="p-1 border">
+                                        <select value={row.item_id} onChange={e => handleRowChange(idx, 'item_id', e.target.value)} className="p-1 border rounded w-full">
+                                            <option value="">Select Item</option>
+                                            {items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
+                                        </select>
+                                    </td>
+                                    <td className="p-1 border">
+                                        <input type="number" step="0.01" value={row.quantity} onChange={e => handleRowChange(idx, 'quantity', e.target.value)} className="p-1 border rounded w-full" />
+                                    </td>
+                                    <td className="p-1 border">
+                                        <input type="number" step="0.01" value={row.cost_per_unit} onChange={e => handleRowChange(idx, 'cost_per_unit', e.target.value)} className="p-1 border rounded w-full" />
+                                    </td>
+                                    <td className="p-1 border">
+                                        <select value={row.quality} onChange={e => handleRowChange(idx, 'quality', e.target.value)} className="p-1 border rounded w-full">
+                                            {['Good','Fair','Poor'].map(q => <option key={q} value={q}>{q}</option>)}
+                                        </select>
+                                    </td>
+                                    <td className="p-1 border text-right">{rowTotal(row).toFixed(2)}</td>
+                                    <td className="p-1 border text-center">
+                                        <button onClick={() => removeRow(idx)} className="text-red-600">✕</button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    <button className="mt-2 px-3 py-1 bg-olive-600 text-white rounded" onClick={addRow}>Add Item</button>
+                </div>
+                <div className="text-right font-semibold mt-2">Total: {total.toFixed(2)} QAR</div>
+                <div className="flex justify-end space-x-2 mt-4">
+                    <button className="px-4 py-2 rounded border" onClick={onClose}>Cancel</button>
+                    <button className="px-4 py-2 rounded bg-olive-600 text-white" onClick={handleSubmit}>Save</button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function InventoryTab() {
     const { state } = React.useContext(window.AppContext);
     const [showWaste, setShowWaste] = React.useState(false);
+    const [showPurchase, setShowPurchase] = React.useState(false);
     const [entries, setEntries] = React.useState([]);
 
     const loadEntries = () => {
@@ -424,10 +525,25 @@ function InventoryTab() {
         }).saveWasteEntry(payload);
     };
 
+    const handlePurchaseSave = (entry) => {
+        const payload = { ...entry, employee_id: (window.currentEmployeeSession && window.currentEmployeeSession.employee_id) || '' };
+        google.script.run.withSuccessHandler(res => {
+            if (res.success) {
+                setShowPurchase(false);
+            } else {
+                alert(res.error);
+            }
+        }).savePurchaseEntry(payload);
+    };
+
     return (
         <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-semibold mb-4">Inventory Management</h2>
-            <button className="bg-olive-600 text-white px-4 py-2 rounded" onClick={() => setShowWaste(true)}>Record Waste</button>
+            <div className="flex gap-2 mb-4">
+                <button className="bg-olive-600 text-white px-4 py-2 rounded" onClick={() => setShowPurchase(true)}>Record Delivery</button>
+                <button className="bg-olive-600 text-white px-4 py-2 rounded" onClick={() => setShowWaste(true)}>Record Waste</button>
+            </div>
+            {showPurchase && <PurchaseEntryModal items={state.data.items || []} suppliers={state.data.suppliers || []} onClose={() => setShowPurchase(false)} onSave={handlePurchaseSave} />}
             {showWaste && <WasteEntryModal items={state.data.items || []} onClose={() => setShowWaste(false)} onSave={handleSave} />}
             <div className="mt-6">
                 <h3 className="font-medium mb-2">Today's Waste Entries</h3>
