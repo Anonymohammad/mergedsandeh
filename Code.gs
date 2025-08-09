@@ -3007,3 +3007,234 @@ function getLatestDataDate() {
   return latest ? latest.toISOString().split('T')[0] : null;
 }
 
+// Phase 9: Complete Inventory Foundation
+// Task 9.1: Comprehensive Item Table Population
+function buildCompleteItemDatabase() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const itemSheet = ss.getSheetByName('Item');
+
+  // Step 1: Get existing daily tracking items (keep these as-is)
+  const existingItems = getSheetData('Item');
+  const existingLegacyKeys = existingItems.map(item => item.legacy_key).filter(key => key);
+
+  // Step 2: Get all products from Products table
+  const products = getSheetData('Products');
+
+  // Step 3: Get all ingredients from Ingredients table
+  const ingredients = getSheetData('Ingredients');
+
+  // Step 4: Create comprehensive item list
+  const allItems = [];
+
+  // Keep existing daily tracking items (with legacy keys)
+  existingItems.forEach(item => {
+    if (item.legacy_key) {
+      allItems.push(item);
+    }
+  });
+
+  // Add products as finished goods
+  products.forEach(product => {
+    if (!itemAlreadyExists(allItems, product.name, 'Finished Products')) {
+      allItems.push({
+        id: Utilities.getUuid(),
+        name: product.name,
+        category: 'Finished Products',
+        unit: 'portion',
+        frequency: 'monthly',
+        is_prepared: true,
+        cost_per_unit: product.cost_price || 0,
+        min_stock: 0,
+        max_stock: 0,
+        storage_location: 'Kitchen',
+        legacy_key: '',
+        active: product.active || true,
+        created_at: new Date(),
+        updated_at: new Date()
+      });
+    }
+  });
+
+  // Add ingredients with proper categorization
+  ingredients.forEach(ingredient => {
+    const category = categorizeIngredient(ingredient);
+    const frequency = determineTrackingFrequency(ingredient, category);
+
+    if (!itemAlreadyExists(allItems, ingredient.name, category)) {
+      allItems.push({
+        id: Utilities.getUuid(),
+        name: ingredient.name,
+        category: category,
+        unit: ingredient.unit || 'kg',
+        frequency: frequency,
+        is_prepared: false,
+        cost_per_unit: ingredient.cost_per_unit || 0,
+        min_stock: ingredient.min_stock || 1,
+        max_stock: ingredient.max_stock || 10,
+        storage_location: ingredient.storage_location || 'Dry Storage',
+        legacy_key: '',
+        active: true,
+        created_at: new Date(),
+        updated_at: new Date()
+      });
+    }
+  });
+
+  // Clear and repopulate Item table
+  if (itemSheet.getLastRow() > 1) {
+    itemSheet.deleteRows(2, itemSheet.getLastRow() - 1);
+  }
+
+  // Add all items to table
+  allItems.forEach(item => {
+    const row = [
+      item.id, item.name, item.category, item.unit, item.frequency,
+      item.is_prepared, item.cost_per_unit, item.min_stock, item.max_stock,
+      item.storage_location, item.legacy_key, item.active,
+      item.created_at, item.updated_at
+    ];
+    itemSheet.appendRow(row);
+  });
+
+  Logger.log(`Complete Item table created with ${allItems.length} items`);
+  return allItems.length;
+}
+
+function categorizeIngredient(ingredient) {
+  const name = ingredient.name.toLowerCase();
+  const existingCategory = ingredient.category ? ingredient.category.toLowerCase() : '';
+
+  if (existingCategory.includes('protein') || name.includes('chicken') || name.includes('beef') || name.includes('steak')) {
+    return name.includes('marinated') ? 'Marinated Proteins' : 'Raw Proteins';
+  }
+  if (existingCategory.includes('bread') || name.includes('bread') || name.includes('pita') || name.includes('saj')) {
+    return 'Bread';
+  }
+  if (name.includes('cream') || name.includes('mayo') || name.includes('sauce')) {
+    return 'High Cost Items';
+  }
+  if (existingCategory.includes('vegetable') || name.includes('lettuce') || name.includes('tomato') || name.includes('onion')) {
+    return 'Vegetables';
+  }
+  if (existingCategory.includes('dairy') || name.includes('cheese') || name.includes('milk') || name.includes('yogurt')) {
+    return 'Dairy Products';
+  }
+  if (existingCategory.includes('frozen') || name.includes('fries') || existingCategory.includes('ice')) {
+    return 'Frozen Items';
+  }
+  if (name.includes('oil') || name.includes('spice') || name.includes('seasoning')) {
+    return 'Seasonings & Oils';
+  }
+  if (name.includes('wrap') || name.includes('box') || name.includes('cup') || name.includes('bag')) {
+    return 'Packaging Materials';
+  }
+  if (name.includes('clean') || name.includes('soap') || name.includes('sanitizer')) {
+    return 'Cleaning Supplies';
+  }
+
+  return 'General Supplies';
+}
+
+function determineTrackingFrequency(ingredient, category) {
+  if (['Raw Proteins', 'Marinated Proteins', 'Bread', 'High Cost Items'].includes(category)) {
+    return 'daily';
+  }
+  if (['Vegetables', 'Dairy Products', 'Frozen Items'].includes(category)) {
+    return 'weekly';
+  }
+  return 'monthly';
+}
+
+function itemAlreadyExists(itemList, name, category) {
+  return itemList.some(item =>
+    item.name.toLowerCase() === name.toLowerCase() &&
+    item.category === category
+  );
+}
+
+// Task 9.2: Recipe Integration Foundation
+function linkRecipesToInventoryItems() {
+  const recipes = getSheetData('Recipes');
+  const items = getSheetData('Item');
+  const ingredients = getSheetData('Ingredients');
+
+  const ingredientToItemMap = {};
+
+  ingredients.forEach(ingredient => {
+    const matchingItem = items.find(item =>
+      item.name.toLowerCase() === ingredient.name.toLowerCase()
+    );
+    if (matchingItem) {
+      ingredientToItemMap[ingredient.id] = matchingItem.id;
+    }
+  });
+
+  const updatedRecipes = recipes.map(recipe => ({
+    ...recipe,
+    item_id: ingredientToItemMap[recipe.ingredient_id] || recipe.ingredient_id
+  }));
+
+  return {
+    mappedRecipes: updatedRecipes.length,
+    unmappedRecipes: recipes.length - updatedRecipes.length,
+    ingredientToItemMap: ingredientToItemMap
+  };
+}
+
+// Task 9.3: Enhanced Database Schema Validation
+function validateCompleteInventorySchema() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const validationResults = {
+    overall: 'valid',
+    issues: [],
+    statistics: {}
+  };
+
+  const items = getSheetData('Item');
+  const dailyItems = items.filter(item => item.frequency === 'daily');
+  const weeklyItems = items.filter(item => item.frequency === 'weekly');
+  const monthlyItems = items.filter(item => item.frequency === 'monthly');
+
+  validationResults.statistics = {
+    totalItems: items.length,
+    dailyTracked: dailyItems.length,
+    weeklyTracked: weeklyItems.length,
+    monthlyTracked: monthlyItems.length,
+    withLegacyKeys: items.filter(item => item.legacy_key).length
+  };
+
+  const requiredLegacyKeys = [
+    'frozen_chicken_breast', 'chicken_shawarma', 'steak',
+    'fahita_chicken', 'chicken_sub', 'spicy_strips', 'original_strips', 'marinated_steak',
+    'saj_bread', 'pita_bread', 'bread_rolls',
+    'cream', 'mayo'
+  ];
+
+  const existingLegacyKeys = items.map(item => item.legacy_key).filter(key => key);
+  const missingLegacyKeys = requiredLegacyKeys.filter(key => !existingLegacyKeys.includes(key));
+
+  if (missingLegacyKeys.length > 0) {
+    validationResults.issues.push({
+      type: 'missing_legacy_keys',
+      severity: 'high',
+      message: `Missing required legacy keys: ${missingLegacyKeys.join(', ')}`
+    });
+    validationResults.overall = 'issues_found';
+  }
+
+  const requiredTables = ['Item', 'SnapshotLog', 'PettyCashDetail', 'WasteLog', 'PurchaseLog', 'InventoryVarianceLog'];
+  requiredTables.forEach(tableName => {
+    const sheet = ss.getSheetByName(tableName);
+    if (!sheet) {
+      validationResults.issues.push({
+        type: 'missing_table',
+        severity: 'high',
+        message: `Required table missing: ${tableName}`
+      });
+      validationResults.overall = 'critical_issues';
+    }
+  });
+
+  return validationResults;
+}
+
