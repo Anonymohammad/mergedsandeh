@@ -2348,10 +2348,24 @@ function getNewTableRecordCounts() {
 function getHistoricalDataDates(startDate, endDate) {
   const salesData = getSheetData('DailySales');
   const set = new Set();
-  salesData.forEach(row => { if (row.sales_date) set.add(new Date(row.sales_date).toISOString().split('T')[0]); });
-  let dates = Array.from(set).sort();
-  if (startDate) dates = dates.filter(d => d >= startDate);
-  if (endDate) dates = dates.filter(d => d <= endDate);
+  salesData.forEach(function(row) {
+    if (row.sales_date) {
+      set.add(new Date(row.sales_date).toDateString());
+    }
+  });
+
+  let dates = Array.from(set).sort(function(a, b) {
+    return new Date(a) - new Date(b);
+  });
+
+  if (startDate) {
+    const start = new Date(startDate);
+    dates = dates.filter(function(d) { return new Date(d) >= start; });
+  }
+  if (endDate) {
+    const end = new Date(endDate);
+    dates = dates.filter(function(d) { return new Date(d) <= end; });
+  }
   return dates;
 }
 
