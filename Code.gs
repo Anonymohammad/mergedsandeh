@@ -2194,6 +2194,147 @@ function validateAllMigratedData() {
   return results;
 }
 
+function executeFullHistoricalMigration(options) {
+  options = options || {};
+  const startTime = new Date();
+  const config = {
+    startDate: options.startDate || null,
+    endDate: options.endDate || null,
+    batchSize: options.batchSize || 10,
+    validateEach: options.validateEach !== false
+  };
+
+  let dates = getHistoricalDataDates();
+  if (config.startDate) dates = dates.filter(d => d >= config.startDate);
+  if (config.endDate) dates = dates.filter(d => d <= config.endDate);
+
+  let migrated = 0;
+  let validated = 0;
+  const errors = [];
+
+  for (let i = 0; i < dates.length; i += config.batchSize) {
+    const batch = dates.slice(i, i + config.batchSize);
+    batch.forEach(date => {
+      try {
+        const res = migrateSingleDate(date);
+        if (res && res.success && !res.skipped) {
+          migrated++;
+          if (config.validateEach) {
+            const v = validateMigratedDate(date);
+            if (v.isValid) {
+              validated++;
+            } else {
+              errors.push({ date: date, error: v.errors.join('; ') });
+            }
+          }
+        }
+        if (res && res.success && res.skipped) {
+          // treated as migrated for reporting purposes
+          migrated++;
+        }
+      } catch (err) {
+        errors.push({ date: date, error: err.message });
+      }
+    });
+    logMigrationActivity('full_migration_progress', {
+      processed: Math.min(i + config.batchSize, dates.length),
+      total: dates.length,
+      migrated: migrated,
+      errors: errors.length
+    }, 'info');
+  }
+
+  const endTime = new Date();
+  const seconds = Math.floor((endTime.getTime() - startTime.getTime()) / 1000);
+  const summary = `Migrated ${migrated}/${dates.length} dates in ${seconds} seconds with ${errors.length} errors`;
+
+  const result = {
+    success: errors.length === 0,
+    totalDates: dates.length,
+    migratedDates: migrated,
+    validatedDates: validated,
+    errorDates: errors.length,
+    errors: errors,
+    timeElapsed: seconds + 's',
+    summary: summary
+  };
+
+  logMigrationActivity('full_migration_complete', result, result.success ? 'success' : 'warning');
+  return result;
+}
+
+function validateCompleteDataMigration(options) {
+  options = options || {};
+  const config = {
+    sampleSize: options.sampleSize || 50,
+    fullValidation: options.fullValidation || false
+  };
+
+  let dates = getHistoricalDataDates();
+  if (!config.fullValidation && dates.length > config.sampleSize) {
+    const sampled = [];
+    while (sampled.length < config.sampleSize && dates.length > 0) {
+      const idx = Math.floor(Math.random() * dates.length);
+      sampled.push(dates.splice(idx, 1)[0]);
+    }
+    dates = sampled;
+  }
+
+  const items = getSheetData('Item');
+  const missingLegacy = items.filter(it => !it.legacy_key);
+
+  const result = {
+    overall: 'pass',
+    totalDatesChecked: dates.length,
+    successfulValidations: 0,
+    failedValidations: 0,
+    warnings: missingLegacy.length,
+    details: [],
+    recommendations: []
+  };
+
+  if (missingLegacy.length > 0) {
+    result.recommendations.push('Some items are missing legacy_key mappings');
+    result.overall = 'warning';
+  }
+
+  dates.forEach(date => {
+    const detail = { date: date, status: 'pass', issues: [], oldDataFound: false, newDataFound: false };
+    const oldData = generateReportFromOldTables(date);
+    const newData = generateReportFromNewTables(date);
+    detail.oldDataFound = oldData && oldData.dataFound;
+    detail.newDataFound = newData && newData.dataFound;
+    if (!detail.oldDataFound || !detail.newDataFound) {
+      detail.status = 'fail';
+      detail.issues.push('Missing data in source or target');
+    } else {
+      const validation = validateMigratedDate(date);
+      if (!validation.isValid) {
+        detail.status = 'fail';
+        detail.issues = validation.errors;
+      }
+    }
+    if (detail.status === 'pass') {
+      result.successfulValidations++;
+    } else {
+      result.failedValidations++;
+    }
+    result.details.push(detail);
+  });
+
+  if (result.failedValidations > 0) {
+    result.overall = 'fail';
+  } else if (result.warnings > 0) {
+    result.overall = 'warning';
+  }
+
+  if (!config.fullValidation) {
+    result.recommendations.push('Run with fullValidation:true for comprehensive check');
+  }
+
+  return result;
+}
+
 // Migration control and monitoring
 function getMigrationControlPanel() {
   const status = getMigrationStatus();
@@ -2372,6 +2513,44 @@ function validateMigrationConfig() {
 
 function checkMigrationPerformance() {
   return { status: 'info', details: 'Performance metrics not implemented' };
+}
+
+function createMigrationReport(migrationResult, validationResult) {
+  const report = {
+    timestamp: new Date().toISOString(),
+    migration: migrationResult,
+    validation: validationResult,
+    recommendations: [],
+    summary: ''
+  };
+
+  if (migrationResult && !migrationResult.success) {
+    report.recommendations.push('Review errorDates and rerun migration for failed dates');
+  }
+  if (validationResult && validationResult.overall !== 'pass') {
+    report.recommendations.push('Investigate failed validations before disabling old tables');
+  }
+  report.summary = migrationResult && migrationResult.summary ? migrationResult.summary : 'No migration executed';
+  return report;
+}
+
+function exportMigrationLog(format, options) {
+  format = format || 'json';
+  options = options || {};
+  const logs = getRecentMigrationLogs(1000); // get all logs
+  const filtered = logs.filter(log => {
+    const date = new Date(log.timestamp);
+    if (options.startDate && date < new Date(options.startDate)) return false;
+    if (options.endDate && date > new Date(options.endDate)) return false;
+    if (options.activity && log.activity !== options.activity) return false;
+    return true;
+  });
+  if (format === 'csv') {
+    const header = 'timestamp,activity,details,status,phase';
+    const rows = filtered.map(l => [l.timestamp, l.activity, l.details, l.status, l.phase].join(','));
+    return [header].concat(rows).join('\n');
+  }
+  return JSON.stringify(filtered);
 }
 
 function getLastMigrationDate() {

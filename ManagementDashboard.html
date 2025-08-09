@@ -1,5 +1,241 @@
 
 <script type="text/babel">
+function getInventoryData(dateRange) {
+    return new Promise(function(resolve, reject) {
+        google.script.run.withSuccessHandler(function(allData) {
+            var items = allData.items || [];
+            var itemMap = {};
+            items.forEach(function(it){ itemMap[it.id] = it; });
+            var start = dateRange && dateRange.start ? new Date(dateRange.start) : null;
+            var end = dateRange && dateRange.end ? new Date(dateRange.end) : null;
+            var snapshots = allData.snapshotLogs || [];
+            var filtered = snapshots.filter(function(s) {
+                var d = new Date(s.date);
+                if (start && d < start) return false;
+                if (end && d > end) return false;
+                return true;
+            });
+            var dataSource = 'new_tables';
+            var categories = {};
+            if (filtered.length === 0) {
+                dataSource = 'old_tables';
+                var tables = ['dailyRawProteins','dailyMarinatedProteins','dailyBreadTracking','dailyHighCostItems'];
+                tables.forEach(function(name){
+                    var table = allData[name] || [];
+                    table.forEach(function(row){
+                        var d = row.count_date ? new Date(row.count_date) : null;
+                        if (d && (!start || d >= start) && (!end || d <= end)) {
+                            for (var key in row) {
+                                if (/_remaining$/.test(key)) {
+                                    var legacyKey = key.replace('_remaining','');
+                                    var item = items.find(function(it){ return it.legacy_key === legacyKey; });
+                                    if (item) {
+                                        if (!categories[item.category]) categories[item.category] = [];
+                                        categories[item.category].push({ name: item.name, quantity: parseFloat(row[key]) || 0, unit: item.unit, date: row.count_date, notes: '', min: item.min_stock, itemId: item.id });
+                                    }
+                                }
+                            }
+                        }
+                    });
+                });
+            } else {
+                filtered.forEach(function(snap){
+                    var item = itemMap[snap.item_id];
+                    if (!item) return;
+                    if (!categories[item.category]) categories[item.category] = [];
+                    categories[item.category].push({ name: item.name, quantity: parseFloat(snap.closing_quantity) || 0, unit: item.unit, date: snap.date, notes: snap.notes || '', min: item.min_stock, itemId: item.id });
+                });
+            }
+            var summary = { totalItems: 0, zeroStock: 0, lowStock: 0, lastUpdated: null };
+            Object.keys(categories).forEach(function(cat){
+                categories[cat].forEach(function(entry){
+                    summary.totalItems++;
+                    if (entry.quantity <= 0) summary.zeroStock++;
+                    if (entry.min !== undefined && entry.quantity <= parseFloat(entry.min)) summary.lowStock++;
+                    if (!summary.lastUpdated || new Date(entry.date) > new Date(summary.lastUpdated)) summary.lastUpdated = entry.date;
+                });
+            });
+            resolve({ dataSource: dataSource, categories: categories, summary: summary });
+        }).withFailureHandler(reject).getData();
+    });
+}
+
+function calculateInventoryMetrics(inventoryData) {
+    return new Promise(function(resolve, reject) {
+        google.script.run.withSuccessHandler(function(allData) {
+            var items = allData.items || [];
+            var metrics = { itemsTracked: inventoryData.summary.totalItems, categoryStock: {}, valueByCategory: {}, storageLocations: {}, untrackedItems: 0, totalValue: 0 };
+            var itemMapByName = {};
+            items.forEach(function(it){ itemMapByName[it.name] = it; });
+            Object.keys(inventoryData.categories).forEach(function(cat){
+                var qty = 0;
+                var val = 0;
+                inventoryData.categories[cat].forEach(function(entry){
+                    qty += entry.quantity;
+                    var item = itemMapByName[entry.name];
+                    if (item) {
+                        var value = entry.quantity * (parseFloat(item.cost_per_unit) || 0);
+                        val += value;
+                        var loc = item.storage_location || 'Unknown';
+                        if (!metrics.storageLocations[loc]) metrics.storageLocations[loc] = 0;
+                        metrics.storageLocations[loc] += entry.quantity;
+                    }
+                });
+                metrics.categoryStock[cat] = qty;
+                metrics.valueByCategory[cat] = val;
+                metrics.totalValue += val;
+            });
+            metrics.untrackedItems = items.length - inventoryData.summary.totalItems;
+            resolve(metrics);
+        }).withFailureHandler(reject).getData();
+    });
+}
+
+function getInventoryTurnover(categoryFilter, daysPeriod) {
+    return new Promise(function(resolve, reject) {
+        google.script.run.withSuccessHandler(function(allData) {
+            var items = allData.items || [];
+            var itemMap = {};
+            items.forEach(function(it){ itemMap[it.id] = it; });
+            var logs = allData.snapshotLogs || [];
+            var now = new Date();
+            var start = new Date();
+            start.setDate(now.getDate() - (daysPeriod || 30));
+            var usage = {};
+            logs.forEach(function(log) {
+                var d = new Date(log.date);
+                if (d < start || d > now) return;
+                var item = itemMap[log.item_id];
+                if (!item) return;
+                if (categoryFilter && item.category !== categoryFilter) return;
+                if (!usage[item.id]) usage[item.id] = { first: log.closing_quantity, last: log.closing_quantity, count: 0, total: 0 };
+                var u = usage[item.id];
+                if (u.count === 0) u.first = log.closing_quantity;
+                u.last = log.closing_quantity;
+                u.count++;
+                u.total += parseFloat(log.closing_quantity) || 0;
+            });
+            var result = [];
+            Object.keys(usage).forEach(function(id) {
+                var item = itemMap[id];
+                var u = usage[id];
+                var avg = u.count > 0 ? u.total / u.count : 0;
+                var used = (parseFloat(u.first) || 0) - (parseFloat(u.last) || 0);
+                var rate = avg > 0 ? used / avg : 0;
+                result.push({ item: item.name, category: item.category, turnover: rate, usage: used, average: avg });
+            });
+            resolve(result);
+        }).withFailureHandler(reject).getData();
+    });
+}
+
+function getInventoryValue(targetDate) {
+    return new Promise(function(resolve, reject) {
+        google.script.run.withSuccessHandler(function(allData) {
+            var items = allData.items || [];
+            var logs = allData.snapshotLogs || [];
+            var itemMap = {};
+            items.forEach(function(it){ itemMap[it.id] = it; });
+            var dateStr = targetDate || new Date().toISOString().split('T')[0];
+            var byCategory = {};
+            var byLocation = {};
+            logs.forEach(function(log){
+                if (log.date === dateStr) {
+                    var item = itemMap[log.item_id];
+                    if (item) {
+                        var qty = parseFloat(log.closing_quantity) || 0;
+                        var val = qty * (parseFloat(item.cost_per_unit) || 0);
+                        if (!byCategory[item.category]) byCategory[item.category] = 0;
+                        byCategory[item.category] += val;
+                        var loc = item.storage_location || 'Unknown';
+                        if (!byLocation[loc]) byLocation[loc] = 0;
+                        byLocation[loc] += val;
+                    }
+                }
+            });
+            var total = 0;
+            Object.keys(byCategory).forEach(function(k){ total += byCategory[k]; });
+            resolve({ date: dateStr, totalValue: total, byCategory: byCategory, byLocation: byLocation });
+        }).withFailureHandler(reject).getData();
+    });
+}
+
+function getStockAlerts() {
+    return new Promise(function(resolve, reject) {
+        google.script.run.withSuccessHandler(function(allData) {
+            var items = allData.items || [];
+            var logs = allData.snapshotLogs || [];
+            var latest = {};
+            logs.forEach(function(log){
+                var existing = latest[log.item_id];
+                if (!existing || new Date(log.date) > new Date(existing.date)) {
+                    latest[log.item_id] = { quantity: parseFloat(log.closing_quantity) || 0, date: log.date };
+                }
+            });
+            var alerts = [];
+            items.forEach(function(it){
+                var l = latest[it.id];
+                if (!l) {
+                    alerts.push({ type: 'not_tracked', item: it.name, message: 'No recent snapshot' });
+                } else {
+                    if (l.quantity <= 0) alerts.push({ type: 'zero_stock', item: it.name, message: 'Item out of stock' });
+                    else if (it.min_stock && l.quantity <= parseFloat(it.min_stock)) alerts.push({ type: 'low_stock', item: it.name, message: 'Below minimum stock' });
+                    var days = Math.floor((new Date().getTime() - new Date(l.date).getTime()) / (1000*60*60*24));
+                    if (days > 7) alerts.push({ type: 'not_tracked_recently', item: it.name, message: 'Not tracked in last 7 days' });
+                }
+            });
+            resolve(alerts);
+        }).withFailureHandler(reject).getData();
+    });
+}
+
+function getInventoryTrends(period) {
+    return new Promise(function(resolve, reject) {
+        google.script.run.withSuccessHandler(function(allData) {
+            var items = allData.items || [];
+            var logs = allData.snapshotLogs || [];
+            var itemMap = {};
+            items.forEach(function(it){ itemMap[it.id] = it; });
+            var end = new Date();
+            var start = new Date();
+            start.setDate(end.getDate() - (period || 30));
+            var trends = {};
+            logs.forEach(function(log){
+                var d = new Date(log.date);
+                if (d >= start && d <= end) {
+                    var item = itemMap[log.item_id];
+                    if (item) {
+                        if (!trends[log.date]) trends[log.date] = {};
+                        if (!trends[log.date][item.category]) trends[log.date][item.category] = 0;
+                        trends[log.date][item.category] += parseFloat(log.closing_quantity) || 0;
+                    }
+                }
+            });
+            resolve(trends);
+        }).withFailureHandler(reject).getData();
+    });
+}
+
+function ensureDataCompatibility(rawData, sourceType) {
+    return { dataSource: sourceType, categories: rawData.categories || {}, summary: rawData.summary || {} };
+}
+
+function getDataSourceStatus() {
+    return new Promise(function(resolve, reject) {
+        google.script.run.withSuccessHandler(function(allData) {
+            var newDates = {};
+            (allData.snapshotLogs || []).forEach(function(l){ if (l.date) newDates[l.date] = true; });
+            var oldDates = {};
+            ['dailyRawProteins','dailyMarinatedProteins','dailyBreadTracking','dailyHighCostItems'].forEach(function(name){
+                (allData[name] || []).forEach(function(r){ if (r.count_date) oldDates[r.count_date] = true; });
+            });
+            var total = Object.keys(Object.assign({}, newDates, oldDates)).length;
+            var completion = total > 0 ? Math.round(Object.keys(newDates).length / total * 100) : 0;
+            resolve({ newTableDates: Object.keys(newDates).length, oldTableDates: Object.keys(oldDates).length, migrationPercent: completion });
+        }).withFailureHandler(reject).getData();
+    });
+}
+
 function ManagementDashboard() {
     const { state } = React.useContext(window.AppContext);
     const [dashboardData, setDashboardData] = React.useState(null);
@@ -15,12 +251,27 @@ function ManagementDashboard() {
     });
     const [showDataStatus, setShowDataStatus] = React.useState(false);
     const [showDebugData, setShowDebugData] = React.useState(false);
+    const [inventoryDataState, setInventoryDataState] = React.useState(null);
+    const [inventoryMetrics, setInventoryMetrics] = React.useState(null);
+    const [inventoryAlerts, setInventoryAlerts] = React.useState([]);
 
     React.useEffect(() => {
         if (selectedPeriod !== 'custom' || (selectedPeriod === 'custom' && customDate)) {
             loadDashboardData();
         }
     }, [selectedPeriod, customDate]);
+
+    React.useEffect(() => {
+        if (dashboardData) {
+            getInventoryData({}).then(function(data){
+                setInventoryDataState(data);
+                return calculateInventoryMetrics(data);
+            }).then(function(metrics){
+                setInventoryMetrics(metrics);
+            });
+            getStockAlerts().then(function(alerts){ setInventoryAlerts(alerts); });
+        }
+    }, [dashboardData]);
 
     const getAcceptableRemainingRange = (stackWeightKg) => {
         return {
@@ -1227,103 +1478,11 @@ function ManagementDashboard() {
 
             {/* Inventory Overview */}
             <SectionLoadingPlaceholder isLoading={cardLoading.inventory}>
-                <div className="bg-white rounded-lg shadow-md p-6">
-                    <h3 className="text-lg font-semibold text-gray-800 mb-4">📦 Enhanced Inventory Analysis</h3>
-
-                    <div className="space-y-6">
-                        {dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.inventory_summary && (
-                            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                                <div className="bg-blue-50 p-4 rounded-lg text-center">
-                                    <h4 className="font-medium text-blue-800 text-sm">Total Items</h4>
-                                    <p className="text-xl font-bold text-blue-600">{dashboardData.processed_analytics.inventory_summary.total_items}</p>
-                                </div>
-                                <div className={`${dashboardData.processed_analytics.inventory_summary.zero_stock > 0 ? 'bg-red-50' : 'bg-green-50'} p-4 rounded-lg text-center`}>
-                                    <h4 className={`font-medium text-sm ${dashboardData.processed_analytics.inventory_summary.zero_stock > 0 ? 'text-red-800' : 'text-green-800'}`}>Out of Stock</h4>
-                                    <p className={`text-xl font-bold ${dashboardData.processed_analytics.inventory_summary.zero_stock > 0 ? 'text-red-600' : 'text-green-600'}`}>{dashboardData.processed_analytics.inventory_summary.zero_stock}</p>
-                                </div>
-                                <div className={`${dashboardData.processed_analytics.inventory_summary.low_stock > 3 ? 'bg-yellow-50' : 'bg-green-50'} p-4 rounded-lg text-center`}>
-                                    <h4 className={`font-medium text-sm ${dashboardData.processed_analytics.inventory_summary.low_stock > 3 ? 'text-yellow-800' : 'text-green-800'}`}>Low Stock</h4>
-                                    <p className={`text-xl font-bold ${dashboardData.processed_analytics.inventory_summary.low_stock > 3 ? 'text-yellow-600' : 'text-green-600'}`}>{dashboardData.processed_analytics.inventory_summary.low_stock}</p>
-                                </div>
-                                <div className="bg-purple-50 p-4 rounded-lg text-center">
-                                    <h4 className="font-medium text-purple-800 text-sm">High Usage</h4>
-                                    <p className="text-xl font-bold text-purple-600">{dashboardData.processed_analytics.inventory_summary.high_usage}</p>
-                                </div>
-                                <div className="bg-green-50 p-4 rounded-lg text-center">
-                                    <h4 className="font-medium text-green-800 text-sm">Total Value</h4>
-                                    <p className="text-lg font-bold text-green-600">{dashboardData.processed_analytics.inventory_summary.total_value.toFixed(0)} QAR</p>
-                                </div>
-                            </div>
-                        )}
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div>
-                                <h4 className="font-medium text-gray-700 mb-3">Raw Proteins</h4>
-                                <div className="space-y-2 text-sm">
-                                    {dashboardData && dashboardData.inventory && Object.entries(dashboardData.inventory).filter(([key]) => ['frozen_chicken_breast_remaining','chicken_shawarma_remaining','steak_remaining'].includes(key)).map(([key, value]) => {
-                                        const itemName = key.replace('_remaining','').replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase());
-                                        const quantity = parseFloat(value) || 0;
-                                        const threshold = getLowStockThreshold('rawProteins', key.replace('_remaining',''));
-                                        const status = quantity === 0 ? 'out' : quantity <= threshold ? 'low' : 'good';
-                                        return (
-                                            <div key={key} className="flex justify-between items-center p-2 rounded border">
-                                                <span className="text-gray-600">{itemName}:</span>
-                                                <div className="text-right">
-                                                    <span className={`font-medium ${status === 'out' ? 'text-red-600' : status === 'low' ? 'text-yellow-600' : 'text-green-600'}`}>{quantity.toFixed(2)} kg</span>
-                                                    <div className="text-xs text-gray-500">Min: {threshold}kg</div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-
-                            <div>
-                                <h4 className="font-medium text-gray-700 mb-3">Marinated Proteins</h4>
-                                <div className="space-y-2 text-sm">
-                                    {dashboardData && dashboardData.inventory && Object.entries(dashboardData.inventory).filter(([key]) => ['fahita_chicken_remaining','chicken_sub_remaining','spicy_strips_remaining','original_strips_remaining','marinated_steak_remaining'].includes(key)).map(([key, value]) => {
-                                        const itemName = key.replace('_remaining','').replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase());
-                                        const quantity = parseFloat(value) || 0;
-                                        const threshold = getLowStockThreshold('marinatedProteins', key.replace('_remaining',''));
-                                        const status = quantity === 0 ? 'out' : quantity <= threshold ? 'low' : 'good';
-                                        return (
-                                            <div key={key} className="flex justify-between items-center p-2 rounded border">
-                                                <span className="text-gray-600">{itemName}:</span>
-                                                <div className="text-right">
-                                                    <span className={`font-medium ${status === 'out' ? 'text-red-600' : status === 'low' ? 'text-yellow-600' : 'text-green-600'}`}>{quantity.toFixed(2)} kg</span>
-                                                    <div className="text-xs text-gray-500">Min: {threshold}kg</div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-
-                            <div>
-                                <h4 className="font-medium text-gray-700 mb-3">Bread &amp; High-Cost Items</h4>
-                                <div className="space-y-2 text-sm">
-                                    {dashboardData && dashboardData.inventory && Object.entries(dashboardData.inventory).filter(([key]) => ['saj_bread_remaining','pita_bread_remaining','bread_roll_remaining','cream_remaining','mayo_remaining'].includes(key)).map(([key, value]) => {
-                                        const itemName = key.replace('_remaining','').replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase());
-                                        const quantity = parseFloat(value) || 0;
-                                        const isBread = key.includes('bread') || key.includes('roll');
-                                        const unit = isBread ? 'pcs' : 'kg';
-                                        const category = isBread ? 'bread' : 'highCostItems';
-                                        const threshold = getLowStockThreshold(category, key.replace('_remaining',''));
-                                        const status = quantity === 0 ? 'out' : quantity <= threshold ? 'low' : 'good';
-                                        return (
-                                            <div key={key} className="flex justify-between items-center p-2 rounded border">
-                                                <span className="text-gray-600">{itemName}:</span>
-                                                <div className="text-right">
-                                                    <span className={`font-medium ${status === 'out' ? 'text-red-600' : status === 'low' ? 'text-yellow-600' : 'text-green-600'}`}>{isBread ? Math.floor(quantity) : quantity.toFixed(2)} {unit}</span>
-                                                    <div className="text-xs text-gray-500">Min: {threshold}{unit}</div>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <InventoryOverview data={inventoryDataState} metrics={inventoryMetrics} />
+                    <CategoryBreakdown data={inventoryDataState} />
+                    <InventoryCharts data={inventoryDataState} />
+                    <StockAlertsPanel alerts={inventoryAlerts} />
                 </div>
             </SectionLoadingPlaceholder>
             {dashboardData && (
@@ -1564,6 +1723,85 @@ function ManagementDashboard() {
         </div>
     );
 }
+
+const InventoryOverview = ({ data, metrics }) => {
+    if (!data || !metrics) return <div>Loading...</div>;
+    return (
+        <div className="space-y-6">
+            <div className="mb-4 text-sm text-gray-600">Data Source: {data.dataSource === 'new_tables' ? 'New Tables' : 'Old Tables'}</div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-blue-50 p-4 rounded text-center">
+                    <h4 className="font-medium text-blue-800 text-sm">Total Items</h4>
+                    <p className="text-xl font-bold text-blue-600">{data.summary.totalItems}</p>
+                </div>
+                <div className="bg-red-50 p-4 rounded text-center">
+                    <h4 className="font-medium text-red-800 text-sm">Out of Stock</h4>
+                    <p className="text-xl font-bold text-red-600">{data.summary.zeroStock}</p>
+                </div>
+                <div className="bg-yellow-50 p-4 rounded text-center">
+                    <h4 className="font-medium text-yellow-800 text-sm">Low Stock</h4>
+                    <p className="text-xl font-bold text-yellow-600">{data.summary.lowStock}</p>
+                </div>
+                <div className="bg-green-50 p-4 rounded text-center">
+                    <h4 className="font-medium text-green-800 text-sm">Last Updated</h4>
+                    <p className="text-md font-bold text-green-600">{data.summary.lastUpdated || 'N/A'}</p>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const CategoryBreakdown = ({ data }) => {
+    if (!data) return null;
+    return (
+        <div className="mt-6">
+            {Object.keys(data.categories).map(function(cat) {
+                return (
+                    <div key={cat} className="mb-4">
+                        <h4 className="font-medium text-gray-700 mb-2">{cat}</h4>
+                        <div className="space-y-1 text-sm">
+                            {data.categories[cat].map(function(item) {
+                                var status = item.quantity <= 0 ? 'text-red-600' : (item.min !== undefined && item.quantity <= parseFloat(item.min)) ? 'text-yellow-600' : 'text-green-600';
+                                return (
+                                    <div className="flex justify-between p-2 border rounded" key={item.name}>
+                                        <span className="text-gray-600">{item.name}</span>
+                                        <span className={"font-medium " + status}>{item.quantity} {item.unit}</span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+const InventoryCharts = ({ data }) => {
+    return (
+        <div className="mt-6">
+            <p className="text-sm text-gray-600">Charts will display here.</p>
+        </div>
+    );
+};
+
+const StockAlertsPanel = ({ alerts }) => {
+    if (!alerts || alerts.length === 0) return null;
+    return (
+        <div className="mt-6">
+            <h4 className="font-medium text-gray-700 mb-2">Stock Alerts</h4>
+            <div className="space-y-2">
+                {alerts.map(function(a, i) {
+                    return (
+                        <div key={i} className="p-2 border-l-4 border-red-500 bg-red-50 text-sm">
+                            <span className="font-medium">{a.item}:</span> {a.message}
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
 
 window.ManagementDashboard = ManagementDashboard;
 </script>
