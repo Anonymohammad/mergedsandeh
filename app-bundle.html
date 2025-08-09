@@ -350,11 +350,96 @@ function IngredientsTab() {
     );
 }
 
+function WasteEntryModal({ items, onClose, onSave }) {
+    const reasons = ['Spoilage','Staff Meal','Prep Waste','Expired','Damaged','Over Prep','Other'];
+    const [form, setForm] = React.useState({
+        item_id: '',
+        waste_quantity: '',
+        reason: 'Spoilage',
+        date: new Date().toISOString().split('T')[0],
+        notes: '',
+        cost_override: ''
+    });
+
+    const selectedItem = items.find(i => i.id == form.item_id);
+    const estimated = form.cost_override !== '' ? parseFloat(form.cost_override) :
+        (selectedItem ? (parseFloat(selectedItem.cost_per_unit || 0) * parseFloat(form.waste_quantity || 0)) : 0);
+
+    const handleChange = (field, value) => {
+        setForm(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleSubmit = () => {
+        onSave({ ...form, estimated_cost: estimated });
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-4 w-full max-w-md">
+                <h3 className="text-lg font-semibold mb-2">Record Waste</h3>
+                <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                    <select value={form.item_id} onChange={e => handleChange('item_id', e.target.value)} className="w-full p-2 border rounded">
+                        <option value="">Select Item</option>
+                        {items.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
+                    </select>
+                    <input type="number" step="0.01" value={form.waste_quantity} onChange={e => handleChange('waste_quantity', e.target.value)} className="w-full p-2 border rounded" placeholder="Quantity" />
+                    <select value={form.reason} onChange={e => handleChange('reason', e.target.value)} className="w-full p-2 border rounded">
+                        {reasons.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                    <input type="date" value={form.date} onChange={e => handleChange('date', e.target.value)} className="w-full p-2 border rounded" />
+                    <textarea value={form.notes} onChange={e => handleChange('notes', e.target.value)} className="w-full p-2 border rounded" placeholder="Notes"></textarea>
+                    <input type="number" step="0.01" value={form.cost_override} onChange={e => handleChange('cost_override', e.target.value)} className="w-full p-2 border rounded" placeholder="Cost Override" />
+                    <div className="text-sm text-gray-600">Estimated Cost: {estimated.toFixed(2)} QAR</div>
+                </div>
+                <div className="flex justify-end space-x-2 mt-4">
+                    <button className="px-4 py-2 rounded border" onClick={onClose}>Cancel</button>
+                    <button className="px-4 py-2 rounded bg-olive-600 text-white" onClick={handleSubmit}>Save</button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function InventoryTab() {
+    const { state } = React.useContext(window.AppContext);
+    const [showWaste, setShowWaste] = React.useState(false);
+    const [entries, setEntries] = React.useState([]);
+
+    const loadEntries = () => {
+        const today = new Date().toISOString().split('T')[0];
+        google.script.run.withSuccessHandler(data => setEntries(data || [])).getWasteEntriesForDate(today);
+    };
+
+    React.useEffect(() => { loadEntries(); }, []);
+
+    const handleSave = (entry) => {
+        const payload = { ...entry, employee_id: (window.currentEmployeeSession && window.currentEmployeeSession.employee_id) || '' };
+        google.script.run.withSuccessHandler(res => {
+            if (res.success) {
+                loadEntries();
+                setShowWaste(false);
+            } else {
+                alert(res.error);
+            }
+        }).saveWasteEntry(payload);
+    };
+
     return (
         <div className="bg-white rounded-lg shadow p-6">
             <h2 className="text-xl font-semibold mb-4">Inventory Management</h2>
-            <p className="text-gray-600">Stock levels and inventory tracking coming soon...</p>
+            <button className="bg-olive-600 text-white px-4 py-2 rounded" onClick={() => setShowWaste(true)}>Record Waste</button>
+            {showWaste && <WasteEntryModal items={state.data.items || []} onClose={() => setShowWaste(false)} onSave={handleSave} />}
+            <div className="mt-6">
+                <h3 className="font-medium mb-2">Today's Waste Entries</h3>
+                <ul className="text-sm">
+                    {entries.map((e, i) => (
+                        <li key={i} className="border-b py-1">
+                            {e.item_id} - {e.waste_quantity} - {e.reason} - {Number(e.estimated_cost).toFixed(2)} QAR
+                        </li>
+                    ))}
+                    {entries.length === 0 && <li className="text-gray-500">No entries</li>}
+                </ul>
+            </div>
         </div>
     );
 }
