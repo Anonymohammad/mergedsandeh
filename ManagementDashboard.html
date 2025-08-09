@@ -101,7 +101,7 @@ function ManagementDashboard() {
             bread: {
                 saj_bread: 20,
                 pita_bread: 15,
-                bread_roll: 10
+                bread_rolls: 10
             },
             highCostItems: {
                 cream: 0.5,
@@ -1302,7 +1302,7 @@ function ManagementDashboard() {
                             <div>
                                 <h4 className="font-medium text-gray-700 mb-3">Bread &amp; High-Cost Items</h4>
                                 <div className="space-y-2 text-sm">
-                                    {dashboardData && dashboardData.inventory && Object.entries(dashboardData.inventory).filter(([key]) => ['saj_bread_remaining','pita_bread_remaining','bread_roll_remaining','cream_remaining','mayo_remaining'].includes(key)).map(([key, value]) => {
+                                    {dashboardData && dashboardData.inventory && Object.entries(dashboardData.inventory).filter(([key]) => ['saj_bread_remaining','pita_bread_remaining','bread_rolls_remaining','cream_remaining','mayo_remaining'].includes(key)).map(([key, value]) => {
                                         const itemName = key.replace('_remaining','').replace(/_/g,' ').replace(/\b\w/g,l=>l.toUpperCase());
                                         const quantity = parseFloat(value) || 0;
                                         const isBread = key.includes('bread') || key.includes('roll');
