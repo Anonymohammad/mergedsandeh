@@ -831,21 +831,226 @@ function saveDailyEntryToNewTables(entryData) {
 function saveDailyEntryToOldTables(entryData) {
   const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
   const employeeId = entryData.employeeId || 'unknown';
+  const employeeName = entryData.employeeName || 'Unknown';
 
-  if (entryData.rawProteins) {
-    saveRawProteinsData(entryData, entryDate, employeeId);
+  let inventoryData;
+  if (entryData.rawProteins || entryData.marinatedProteins || entryData.bread || entryData.highCostItems) {
+    inventoryData = {
+      rawProteins: entryData.rawProteins || {},
+      marinatedProteins: entryData.marinatedProteins || {},
+      bread: entryData.bread || {},
+      highCostItems: entryData.highCostItems || {}
+    };
+  } else if (entryData.inventory) {
+    inventoryData = convertInventoryDataToNestedFormat(entryData.inventory);
   }
-  if (entryData.marinatedProteins) {
-    saveMarinatedProteinsData(entryData, entryDate, employeeId);
+
+  if (entryData.shawarmaStack) {
+    saveToOldShawarmaTable(entryData, entryDate, employeeId);
   }
-  if (entryData.bread) {
-    saveBreadData(entryData, entryDate, employeeId);
+
+  if (entryData.sales) {
+    saveToOldSalesTable(entryData, entryDate, employeeId);
   }
-  if (entryData.highCostItems) {
-    saveHighCostItemsData(entryData, entryDate, employeeId);
+
+  if (inventoryData) {
+    saveToOldInventoryTables(inventoryData, entryDate, employeeId, employeeName);
   }
 
   return { success: true, method: 'old_tables' };
+}
+
+function saveToOldShawarmaTable(entryData, entryDate, employeeId) {
+  saveShawarmaStackData(entryData, entryDate, employeeId);
+}
+
+function saveToOldSalesTable(entryData, entryDate, employeeId) {
+  saveEnhancedSalesData(entryData, entryDate, employeeId);
+}
+
+function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employeeName) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  if (inventoryData.rawProteins && Object.keys(inventoryData.rawProteins).length > 0) {
+    const rawProteinsSheet = ss.getSheetByName('DailyRawProteins');
+    const row = [
+      Utilities.getUuid(),
+      entryDate,
+      inventoryData.rawProteins.frozen_chicken_breast_opening || '',
+      inventoryData.rawProteins.frozen_chicken_breast_received || '',
+      inventoryData.rawProteins.frozen_chicken_breast_expired || '',
+      inventoryData.rawProteins.frozen_chicken_breast_remaining || '',
+      inventoryData.rawProteins.chicken_shawarma_opening || '',
+      inventoryData.rawProteins.chicken_shawarma_received || '',
+      inventoryData.rawProteins.chicken_shawarma_expired || '',
+      inventoryData.rawProteins.chicken_shawarma_remaining || '',
+      inventoryData.rawProteins.steak_opening || '',
+      inventoryData.rawProteins.steak_received || '',
+      inventoryData.rawProteins.steak_expired || '',
+      inventoryData.rawProteins.steak_remaining || '',
+      employeeId,
+      employeeName,
+      new Date(),
+      new Date()
+    ];
+    rawProteinsSheet.appendRow(row);
+  }
+
+  if (inventoryData.marinatedProteins && Object.keys(inventoryData.marinatedProteins).length > 0) {
+    const marinatedSheet = ss.getSheetByName('DailyMarinatedProteins');
+    const row = [
+      Utilities.getUuid(),
+      entryDate,
+      inventoryData.marinatedProteins.fahita_chicken_opening || '',
+      inventoryData.marinatedProteins.fahita_chicken_received || '',
+      inventoryData.marinatedProteins.fahita_chicken_expired || '',
+      inventoryData.marinatedProteins.fahita_chicken_remaining || '',
+      inventoryData.marinatedProteins.chicken_sub_opening || '',
+      inventoryData.marinatedProteins.chicken_sub_received || '',
+      inventoryData.marinatedProteins.chicken_sub_expired || '',
+      inventoryData.marinatedProteins.chicken_sub_remaining || '',
+      inventoryData.marinatedProteins.spicy_strips_opening || '',
+      inventoryData.marinatedProteins.spicy_strips_received || '',
+      inventoryData.marinatedProteins.spicy_strips_expired || '',
+      inventoryData.marinatedProteins.spicy_strips_remaining || '',
+      inventoryData.marinatedProteins.original_strips_opening || '',
+      inventoryData.marinatedProteins.original_strips_received || '',
+      inventoryData.marinatedProteins.original_strips_expired || '',
+      inventoryData.marinatedProteins.original_strips_remaining || '',
+      inventoryData.marinatedProteins.marinated_steak_opening || '',
+      inventoryData.marinatedProteins.marinated_steak_received || '',
+      inventoryData.marinatedProteins.marinated_steak_expired || '',
+      inventoryData.marinatedProteins.marinated_steak_remaining || '',
+      employeeId,
+      employeeName,
+      new Date(),
+      new Date()
+    ];
+    marinatedSheet.appendRow(row);
+  }
+
+  if (inventoryData.bread && Object.keys(inventoryData.bread).length > 0) {
+    const breadSheet = ss.getSheetByName('DailyBreadTracking');
+    const row = [
+      Utilities.getUuid(),
+      entryDate,
+      inventoryData.bread.saj_bread_opening || '',
+      inventoryData.bread.saj_bread_received || '',
+      inventoryData.bread.saj_bread_expired || '',
+      inventoryData.bread.saj_bread_remaining || '',
+      inventoryData.bread.pita_bread_opening || '',
+      inventoryData.bread.pita_bread_received || '',
+      inventoryData.bread.pita_bread_expired || '',
+      inventoryData.bread.pita_bread_remaining || '',
+      inventoryData.bread.bread_rolls_opening || '',
+      inventoryData.bread.bread_rolls_received || '',
+      inventoryData.bread.bread_rolls_expired || '',
+      inventoryData.bread.bread_rolls_remaining || '',
+      employeeId,
+      employeeName,
+      new Date(),
+      new Date()
+    ];
+    breadSheet.appendRow(row);
+  }
+
+  if (inventoryData.highCostItems && Object.keys(inventoryData.highCostItems).length > 0) {
+    const highCostSheet = ss.getSheetByName('DailyHighCostItems');
+    const row = [
+      Utilities.getUuid(),
+      entryDate,
+      inventoryData.highCostItems.cream_opening || '',
+      inventoryData.highCostItems.cream_received || '',
+      inventoryData.highCostItems.cream_expired || '',
+      inventoryData.highCostItems.cream_remaining || '',
+      inventoryData.highCostItems.mayo_opening || '',
+      inventoryData.highCostItems.mayo_received || '',
+      inventoryData.highCostItems.mayo_expired || '',
+      inventoryData.highCostItems.mayo_remaining || '',
+      employeeId,
+      employeeName,
+      new Date(),
+      new Date()
+    ];
+    highCostSheet.appendRow(row);
+  }
+}
+
+function convertInventoryDataToNestedFormat(inventory) {
+  const nested = {
+    rawProteins: {},
+    marinatedProteins: {},
+    bread: {},
+    highCostItems: {}
+  };
+
+  const keyMappings = {
+    'chicken_breast_opening': 'rawProteins.frozen_chicken_breast_opening',
+    'chicken_breast_received': 'rawProteins.frozen_chicken_breast_received',
+    'chicken_breast_expired': 'rawProteins.frozen_chicken_breast_expired',
+    'chicken_breast_remaining': 'rawProteins.frozen_chicken_breast_remaining',
+    'chicken_shawarma_opening': 'rawProteins.chicken_shawarma_opening',
+    'chicken_shawarma_received': 'rawProteins.chicken_shawarma_received',
+    'chicken_shawarma_expired': 'rawProteins.chicken_shawarma_expired',
+    'chicken_shawarma_remaining': 'rawProteins.chicken_shawarma_remaining',
+    'steak_opening': 'rawProteins.steak_opening',
+    'steak_received': 'rawProteins.steak_received',
+    'steak_expired': 'rawProteins.steak_expired',
+    'steak_remaining': 'rawProteins.steak_remaining',
+    'fahita_chicken_opening': 'marinatedProteins.fahita_chicken_opening',
+    'fahita_chicken_received': 'marinatedProteins.fahita_chicken_received',
+    'fahita_chicken_expired': 'marinatedProteins.fahita_chicken_expired',
+    'fahita_chicken_remaining': 'marinatedProteins.fahita_chicken_remaining',
+    'chicken_sub_opening': 'marinatedProteins.chicken_sub_opening',
+    'chicken_sub_received': 'marinatedProteins.chicken_sub_received',
+    'chicken_sub_expired': 'marinatedProteins.chicken_sub_expired',
+    'chicken_sub_remaining': 'marinatedProteins.chicken_sub_remaining',
+    'spicy_strips_opening': 'marinatedProteins.spicy_strips_opening',
+    'spicy_strips_received': 'marinatedProteins.spicy_strips_received',
+    'spicy_strips_expired': 'marinatedProteins.spicy_strips_expired',
+    'spicy_strips_remaining': 'marinatedProteins.spicy_strips_remaining',
+    'original_strips_opening': 'marinatedProteins.original_strips_opening',
+    'original_strips_received': 'marinatedProteins.original_strips_received',
+    'original_strips_expired': 'marinatedProteins.original_strips_expired',
+    'original_strips_remaining': 'marinatedProteins.original_strips_remaining',
+    'marinated_steak_opening': 'marinatedProteins.marinated_steak_opening',
+    'marinated_steak_received': 'marinatedProteins.marinated_steak_received',
+    'marinated_steak_expired': 'marinatedProteins.marinated_steak_expired',
+    'marinated_steak_remaining': 'marinatedProteins.marinated_steak_remaining',
+    'saj_bread_opening': 'bread.saj_bread_opening',
+    'saj_bread_received': 'bread.saj_bread_received',
+    'saj_bread_expired': 'bread.saj_bread_expired',
+    'saj_bread_remaining': 'bread.saj_bread_remaining',
+    'pita_bread_opening': 'bread.pita_bread_opening',
+    'pita_bread_received': 'bread.pita_bread_received',
+    'pita_bread_expired': 'bread.pita_bread_expired',
+    'pita_bread_remaining': 'bread.pita_bread_remaining',
+    'bread_roll_opening': 'bread.bread_rolls_opening',
+    'bread_roll_received': 'bread.bread_rolls_received',
+    'bread_roll_expired': 'bread.bread_rolls_expired',
+    'bread_roll_remaining': 'bread.bread_rolls_remaining',
+    'cream_opening': 'highCostItems.cream_opening',
+    'cream_received': 'highCostItems.cream_received',
+    'cream_expired': 'highCostItems.cream_expired',
+    'cream_remaining': 'highCostItems.cream_remaining',
+    'mayo_opening': 'highCostItems.mayo_opening',
+    'mayo_received': 'highCostItems.mayo_received',
+    'mayo_expired': 'highCostItems.mayo_expired',
+    'mayo_remaining': 'highCostItems.mayo_remaining'
+  };
+
+  Object.keys(inventory || {}).forEach(function(key) {
+    const mapping = keyMappings[key];
+    if (mapping) {
+      const parts = mapping.split('.');
+      const section = parts[0];
+      const field = parts[1];
+      if (!nested[section]) nested[section] = {};
+      nested[section][field] = inventory[key];
+    }
+  });
+
+  return nested;
 }
 
 function saveShawarmaStackData(entryData, entryDate, employeeId) {
@@ -998,17 +1203,9 @@ function generateReportFromNewTables(targetDateString) {
 
   const todaySnapshot = snapshotData.filter(row => row.date && new Date(row.date).toDateString() === targetDateString);
 
-  let rawProteins = null;
-  let marinatedProteins = null;
-  let bread = null;
-  let highCostItems = null;
-
+  let inventoryData = null;
   if (todaySnapshot.length > 0) {
-    const legacy = mapSnapshotLogToLegacyFormat(todaySnapshot);
-    rawProteins = legacy.rawProteins;
-    marinatedProteins = legacy.marinatedProteins;
-    bread = legacy.bread;
-    highCostItems = legacy.highCostItems;
+    inventoryData = mapSnapshotLogToFormFormat(todaySnapshot);
   }
 
   return {
@@ -1016,13 +1213,29 @@ function generateReportFromNewTables(targetDateString) {
     dataFound: !!(todayShawarma || todaySales || todaySnapshot.length > 0),
     shawarma: todayShawarma || null,
     sales: todaySales || null,
-    rawProteins: rawProteins,
-    marinatedProteins: marinatedProteins,
-    bread: bread,
-    highCostItems: highCostItems,
+    inventory: inventoryData,
     pettyCashEntries: pettyCashEntries,
     notes: ''
   };
+}
+
+function mapSnapshotLogToFormFormat(snapshotEntries) {
+  const items = getSheetData('Item');
+  const itemMap = {};
+  items.forEach(function(it) {
+    itemMap[it.id] = it;
+  });
+
+  const flattened = {};
+
+  snapshotEntries.forEach(function(entry) {
+    const item = itemMap[entry.item_id];
+    if (!item || !item.legacy_key) return;
+    const fieldName = item.legacy_key + '_remaining';
+    flattened[fieldName] = entry.closing_quantity;
+  });
+
+  return flattened;
 }
 
 function generateReportFromOldTables(targetDateString) {
