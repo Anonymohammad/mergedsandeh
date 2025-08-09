@@ -1187,55 +1187,82 @@ function generateDailyReport(date) {
 }
 
 function generateReportFromNewTables(targetDateString) {
-  const shawarmaData = getSheetData('DailyShawarmaStack');
-  const salesData = getSheetData('DailySales');
-  const snapshotData = getSheetData('SnapshotLog');
+  try {
+    const shawarmaData = Array.isArray(getSheetData('DailyShawarmaStack')) ? getSheetData('DailyShawarmaStack') : [];
+    const salesData = Array.isArray(getSheetData('DailySales')) ? getSheetData('DailySales') : [];
+    const snapshotData = Array.isArray(getSheetData('SnapshotLog')) ? getSheetData('SnapshotLog') : [];
 
-  const todayShawarma = shawarmaData.find(row => row.date && new Date(row.date).toDateString() === targetDateString);
-  const todaySales = salesData.find(row => row.sales_date && new Date(row.sales_date).toDateString() === targetDateString);
+    const todayShawarma = shawarmaData.find(row => row.date && new Date(row.date).toDateString() === targetDateString);
+    const todaySales = salesData.find(row => row.sales_date && new Date(row.sales_date).toDateString() === targetDateString);
 
-  let pettyCashEntries = [];
-  if (todaySales) {
-    pettyCashEntries = getPettyCashDetails(todaySales.id);
-    todaySales.other_food_revenue = (parseFloat(todaySales.total_revenue) || 0) - (parseFloat(todaySales.shawarma_revenue) || 0);
-    todaySales.petty_cash_total = calculatePettyCashTotal(pettyCashEntries);
+    let pettyCashEntries = [];
+    if (todaySales && todaySales.id) {
+      pettyCashEntries = getPettyCashDetails(todaySales.id);
+      const totalRevenue = parseFloat(todaySales.total_revenue) || 0;
+      const shawarmaRevenue = parseFloat(todaySales.shawarma_revenue) || 0;
+      todaySales.other_food_revenue = totalRevenue - shawarmaRevenue;
+      todaySales.petty_cash_total = calculatePettyCashTotal(pettyCashEntries);
+    }
+
+    const todaySnapshot = Array.isArray(snapshotData) ? snapshotData.filter(row => row.date && new Date(row.date).toDateString() === targetDateString) : [];
+
+    let inventoryData = null;
+    if (todaySnapshot.length > 0) {
+      inventoryData = mapSnapshotLogToFormFormat(todaySnapshot);
+    }
+
+    return {
+      date: targetDateString,
+      dataFound: !!(todayShawarma || todaySales || todaySnapshot.length > 0),
+      shawarma: todayShawarma || null,
+      sales: todaySales || null,
+      inventory: inventoryData,
+      pettyCashEntries: pettyCashEntries,
+      notes: ''
+    };
+  } catch (error) {
+    logMigrationActivity('new_tables_report_error', {
+      date: targetDateString,
+      error: error.message
+    }, 'error');
+    return {
+      date: targetDateString,
+      dataFound: false,
+      shawarma: null,
+      sales: null,
+      inventory: null,
+      pettyCashEntries: [],
+      notes: ''
+    };
   }
-
-  const todaySnapshot = snapshotData.filter(row => row.date && new Date(row.date).toDateString() === targetDateString);
-
-  let inventoryData = null;
-  if (todaySnapshot.length > 0) {
-    inventoryData = mapSnapshotLogToFormFormat(todaySnapshot);
-  }
-
-  return {
-    date: targetDateString,
-    dataFound: !!(todayShawarma || todaySales || todaySnapshot.length > 0),
-    shawarma: todayShawarma || null,
-    sales: todaySales || null,
-    inventory: inventoryData,
-    pettyCashEntries: pettyCashEntries,
-    notes: ''
-  };
 }
 
 function mapSnapshotLogToFormFormat(snapshotEntries) {
-  const items = getSheetData('Item');
-  const itemMap = {};
-  items.forEach(function(it) {
-    itemMap[it.id] = it;
-  });
+  try {
+    const items = Array.isArray(getSheetData('Item')) ? getSheetData('Item') : [];
+    const itemMap = {};
+    items.forEach(function(it) {
+      if (it && typeof it.id !== 'undefined') {
+        itemMap[it.id] = it;
+      }
+    });
 
-  const flattened = {};
+    const flattened = {};
 
-  snapshotEntries.forEach(function(entry) {
-    const item = itemMap[entry.item_id];
-    if (!item || !item.legacy_key) return;
-    const fieldName = item.legacy_key + '_remaining';
-    flattened[fieldName] = entry.closing_quantity;
-  });
+    if (Array.isArray(snapshotEntries)) {
+      snapshotEntries.forEach(function(entry) {
+        const item = itemMap[entry.item_id];
+        if (!item || !item.legacy_key) return;
+        const fieldName = item.legacy_key + '_remaining';
+        flattened[fieldName] = entry.closing_quantity;
+      });
+    }
 
-  return flattened;
+    return flattened;
+  } catch (error) {
+    logMigrationActivity('map_snapshot_log_error', { error: error.message }, 'error');
+    return {};
+  }
 }
 
 function generateReportFromOldTables(targetDateString) {
@@ -1961,17 +1988,23 @@ function savePettyCashDetails(entries, dailySalesId, employeeId) {
 }
 
 function getPettyCashDetails(dailySalesId) {
-  const entries = [];
-  if (!dailySalesId) {
-    return entries;
-  }
-  const data = getSheetData('PettyCashDetail');
-  for (let i = 0; i < data.length; i++) {
-    if (data[i].daily_sales_id === dailySalesId) {
-      entries.push(data[i]);
+  try {
+    const entries = [];
+    if (!dailySalesId) {
+      return entries;
     }
+    const data = Array.isArray(getSheetData('PettyCashDetail')) ? getSheetData('PettyCashDetail') : [];
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i];
+      if (row && row.daily_sales_id === dailySalesId) {
+        entries.push(row);
+      }
+    }
+    return entries;
+  } catch (error) {
+    logMigrationActivity('petty_cash_details_error', { dailySalesId: dailySalesId, error: error.message }, 'error');
+    return [];
   }
-  return entries;
 }
 
 function calculatePettyCashTotal(entries) {
