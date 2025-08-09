@@ -2907,10 +2907,19 @@ function validateCompleteDataMigration(options) {
 
   const mappings = getAllLegacyKeyMappings();
   const items = getSheetData('Item');
-  const missingLegacy = items.filter(function(it) { return !it.legacy_key; });
+  var requiredCategories = ['Raw Proteins', 'Marinated Proteins', 'Bread', 'High Cost Items'];
+  var missingLegacy = items.filter(function(it) {
+    return requiredCategories.indexOf(it.category) !== -1 && !it.legacy_key;
+  });
   if (missingLegacy.length > 0) {
     warnings++;
-    details.push({ date: 'N/A', status: 'warning', issues: ['Items missing legacy keys: ' + missingLegacy.length], oldDataFound: false, newDataFound: false });
+    details.push({
+      date: 'N/A',
+      status: 'warning',
+      issues: ['Items missing legacy keys: ' + missingLegacy.length],
+      oldDataFound: false,
+      newDataFound: false
+    });
   }
 
   datesToCheck.forEach(function(dateStr) {
