@@ -6,6 +6,7 @@ function ManagementDashboard() {
     const [selectedPeriod, setSelectedPeriod] = React.useState('today');
     const [customDate, setCustomDate] = React.useState('');
     const [alerts, setAlerts] = React.useState([]);
+    const [varianceReport, setVarianceReport] = React.useState(null);
     const [loading, setLoading] = React.useState(true);
     const [cardLoading, setCardLoading] = React.useState({
         metrics: true,
@@ -163,6 +164,13 @@ function ManagementDashboard() {
 
                         setLoading(false);
                         setCardLoading({ metrics: false, shawarma: false, sales: false, inventory: false });
+
+                        google.script.run
+                            .withSuccessHandler(report => {
+                                setVarianceReport(report.variance);
+                                setAlerts(prev => [...prev, ...report.alerts]);
+                            })
+                            .getVarianceReport(dateParam);
                     } catch (parseError) {
                         console.error('Error parsing dashboard data:', parseError);
                         setLoading(false);
@@ -1377,6 +1385,7 @@ function ManagementDashboard() {
                                 {createMetricRow('Inventory Health', dashboardData.processed_analytics && dashboardData.processed_analytics.inventory_summary ? `${dashboardData.processed_analytics.inventory_summary.total_items - dashboardData.processed_analytics.inventory_summary.zero_stock - dashboardData.processed_analytics.inventory_summary.low_stock}/${dashboardData.processed_analytics.inventory_summary.total_items} OK` : 'N/A', dashboardData.processed_analytics && dashboardData.processed_analytics.inventory_summary ? (dashboardData.processed_analytics.inventory_summary.zero_stock === 0 && dashboardData.processed_analytics.inventory_summary.low_stock <= 2 ? 'excellent' : dashboardData.processed_analytics.inventory_summary.zero_stock === 0 && dashboardData.processed_analytics.inventory_summary.low_stock <= 5 ? 'good' : 'needs_improvement') : 'unknown')}
                                 {createMetricRow('Petty Cash Control', dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.pettyCash ? `${dashboardData.enhanced_analytics.pettyCash.total_amount.toFixed(2)} QAR` : '0.00 QAR', dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.pettyCash ? (dashboardData.enhanced_analytics.pettyCash.total_amount <= 75 ? 'excellent' : dashboardData.enhanced_analytics.pettyCash.total_amount <= 150 ? 'good' : 'needs_improvement') : 'excellent')}
                                 {createMetricRow('Payment Accuracy', dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.sales ? `${dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total.toFixed(2)} QAR diff` : 'N/A', dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.sales ? (dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total <= 2 ? 'excellent' : dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total <= 10 ? 'good' : 'needs_improvement') : 'unknown')}
+                                {createMetricRow('Inventory Variance', varianceReport ? `${varianceReport.summary.critical} critical / ${varianceReport.summary.warning} warning` : 'N/A', varianceReport ? (varianceReport.summary.critical === 0 && varianceReport.summary.warning === 0 ? 'excellent' : varianceReport.summary.critical === 0 && varianceReport.summary.warning <= 2 ? 'good' : 'needs_improvement') : 'unknown')}
                             </div>
                         </div>
                     </div>

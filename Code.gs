@@ -839,6 +839,11 @@ function saveDailyEntryToNewTables(entryData) {
   if (entryData.pettyCashEntries && entryData.pettyCashEntries.length && dailySalesId) {
     savePettyCashDetails(entryData.pettyCashEntries, dailySalesId, employeeId);
   }
+  try {
+    calculateInventoryVariance(entryDate, employeeId, { trigger: 'daily_entry' });
+  } catch (err) {
+    console.error('Variance calculation failed: ' + err.message);
+  }
 
   return { success: true, method: 'new_tables' };
 }
@@ -3302,6 +3307,175 @@ function linkPurchasesToDailyInventory(date) {
     });
   });
   return totals;
+}
+
+// ===== Inventory Variance Calculation =====
+function getSnapshotQuantity(itemId, date) {
+  const snapshotData = getSheetData('SnapshotLog') || [];
+  const target = new Date(date).toDateString();
+  const entry = snapshotData.find(e => e.item_id == itemId && new Date(e.date).toDateString() === target);
+  return entry ? Number(entry.closing_quantity) : null;
+}
+
+function getReceivedQuantity(itemId, date) {
+  const purchases = getSheetData('PurchaseLog') || [];
+  const target = new Date(date).toDateString();
+  let total = 0;
+  purchases.forEach(p => {
+    if (p.item_id == itemId && new Date(p.delivery_date).toDateString() === target) {
+      total += Number(p.quantity) || 0;
+    }
+  });
+  return total;
+}
+
+function getSalesProductQuantities(date) {
+  const orders = getSheetData('Orders') || [];
+  const orderItems = getSheetData('OrderItems') || [];
+  const target = new Date(date).toDateString();
+  const ordersById = {};
+  orders.forEach(o => {
+    if (new Date(o.order_date).toDateString() === target) {
+      ordersById[o.id] = o;
+    }
+  });
+  const productQty = {};
+  orderItems.forEach(oi => {
+    if (ordersById[oi.order_id]) {
+      productQty[oi.product_id] = (productQty[oi.product_id] || 0) + (Number(oi.quantity) || 0);
+    }
+  });
+  return productQty;
+}
+
+function calculateTheoreticalUsage(itemId, date) {
+  const recipes = getSheetData('Recipes').filter(r => r.ingredient_id == itemId);
+  if (!recipes.length) return null;
+  const productQty = getSalesProductQuantities(date);
+  let usage = 0;
+  recipes.forEach(r => {
+    const sold = productQty[r.product_id] || 0;
+    usage += sold * (Number(r.quantity_needed) || 0);
+  });
+  return usage;
+}
+
+function calculateItemVariance(item, date) {
+  const yesterday = new Date(date);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const opening = getSnapshotQuantity(item.id, yesterday);
+  const closing = getSnapshotQuantity(item.id, date);
+  if (opening === null || closing === null) {
+    return {
+      item_id: item.id,
+      item_name: item.name,
+      calculationStatus: 'data_error'
+    };
+  }
+  const received = getReceivedQuantity(item.id, date);
+  const actual = (opening + received) - closing;
+
+  const theoretical = calculateTheoreticalUsage(item.id, date);
+  if (theoretical === null) {
+    return {
+      item_id: item.id,
+      item_name: item.name,
+      opening_quantity: opening,
+      received_quantity: received,
+      closing_quantity: closing,
+      actual_usage: actual,
+      calculationStatus: 'missing_usage'
+    };
+  }
+
+  const variance = actual - theoretical;
+  const variancePct = theoretical !== 0 ? (variance / theoretical) * 100 : null;
+  const costImpact = variance * (Number(item.cost_per_unit) || 0);
+
+  let varianceStatus = 'acceptable';
+  if (Math.abs(variancePct) > 10 || Math.abs(variance) > 0.5) {
+    varianceStatus = 'warning';
+  }
+  if (Math.abs(variancePct) > 20 || Math.abs(costImpact) > 50) {
+    varianceStatus = 'critical';
+  } else if (Math.abs(costImpact) > 25) {
+    varianceStatus = 'warning';
+  }
+
+  return {
+    item_id: item.id,
+    item_name: item.name,
+    opening_quantity: opening,
+    received_quantity: received,
+    closing_quantity: closing,
+    actual_usage: actual,
+    theoretical_usage: theoretical,
+    variance: variance,
+    variance_percentage: variancePct,
+    cost_impact: costImpact,
+    varianceStatus: varianceStatus,
+    calculationStatus: 'ready'
+  };
+}
+
+function calculateInventoryVariance(date, employeeId, options) {
+  const items = getSheetData('Item') || [];
+  const results = [];
+  const summary = {
+    totalItems: 0,
+    acceptable: 0,
+    warning: 0,
+    critical: 0,
+    missingUsage: 0,
+    dataError: 0,
+    totalCostImpact: 0
+  };
+  items.forEach(item => {
+    if (item.active === false || item.active === 'false') return;
+    const res = calculateItemVariance(item, date);
+    results.push(res);
+    summary.totalItems++;
+    summary.totalCostImpact += res.cost_impact || 0;
+    if (res.calculationStatus === 'data_error') summary.dataError++;
+    else if (res.calculationStatus === 'missing_usage') summary.missingUsage++;
+    else {
+      if (res.varianceStatus === 'critical') summary.critical++;
+      else if (res.varianceStatus === 'warning') summary.warning++;
+      else summary.acceptable++;
+    }
+  });
+  return {
+    date: new Date(date),
+    employeeId: employeeId || 'system',
+    generated_at: new Date(),
+    items: results,
+    summary: summary
+  };
+}
+
+function generateVarianceAlerts(varianceData) {
+  const alerts = [];
+  varianceData.items.forEach(item => {
+    if (item.calculationStatus === 'data_error') {
+      alerts.push({ type: 'data_error', item_id: item.item_id, message: `Missing data for ${item.item_name}` });
+    } else if (item.calculationStatus === 'missing_usage') {
+      alerts.push({ type: 'missing_usage', item_id: item.item_id, message: `No recipe data for ${item.item_name}` });
+    } else if (item.varianceStatus === 'critical') {
+      alerts.push({ type: 'critical', item_id: item.item_id, message: `Critical variance for ${item.item_name}` });
+    } else if (item.varianceStatus === 'warning') {
+      alerts.push({ type: 'warning', item_id: item.item_id, message: `Variance warning for ${item.item_name}` });
+    }
+  });
+  return alerts;
+}
+
+function getVarianceReport(date) {
+  const variance = calculateInventoryVariance(date, 'system');
+  return {
+    variance: variance,
+    alerts: generateVarianceAlerts(variance)
+  };
 }
 
 
