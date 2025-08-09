@@ -1,6 +1,15 @@
 <script type="text/babel">
 const normalizeNumberInput = (value) => value.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
 
+function getCurrentEmployeeId(session) {
+    try {
+        return session && session.employeeId ? session.employeeId : 'unknown';
+    } catch (e) {
+        console.error('Unable to determine employee ID', e);
+        return 'unknown';
+    }
+}
+
 function PettyCashEntryForm({ entry, onChange, onSubmit, onCancel, isEditing, categories, t }) {
     return React.createElement('div', { className: 'space-y-2 petty-cash-form' },
         React.createElement('label', { className: 'block text-sm font-medium' }, t('category')),
@@ -411,6 +420,8 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                                     mayo_opening: (data.highCostItems && data.highCostItems.mayo_remaining) ? data.highCostItems.mayo_remaining : ''
                                 }
                             }));
+                        } else {
+                            console.error('Previous day data missing', data);
                         }
                     })
                     .withFailureHandler(error => {
@@ -651,7 +662,7 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                 notes: formData.notes,
                 isUpdate: isUpdateMode,
                 managementPin: isUpdateMode ? managementPin : null,
-                employeeId: employeeSession.employeeId
+                employeeId: getCurrentEmployeeId(employeeSession)
             };
             
             await google.script.run

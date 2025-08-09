@@ -2,6 +2,16 @@
 <script type="text/babel">
 const normalizeNumberInput = (value) => value.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
 
+function getCurrentEmployeeId() {
+    try {
+        const session = typeof getEmployeeSession === 'function' ? getEmployeeSession() : null;
+        return session && session.employeeId ? session.employeeId : 'management';
+    } catch (e) {
+        console.error('Unable to get employee session', e);
+        return 'management';
+    }
+}
+
 function PettyCashEntryForm({ entry, onChange, onSubmit, onCancel, isEditing, categories, t }) {
     return React.createElement('div', { className: 'space-y-2 petty-cash-form' },
         React.createElement('select', {
@@ -500,6 +510,8 @@ function DailyEntryTab() {
                                     mayo_opening: data.inventory.mayo_remaining || ''
                                 }
                             }));
+                        } else {
+                            console.error('Previous day inventory missing or malformed', data);
                         }
                     })
                     .withFailureHandler(error => {
@@ -744,6 +756,7 @@ function DailyEntryTab() {
                 },
                 pettyCashEntries: pettyCashEntries,
                 inventory: inventory,
+                employeeId: getCurrentEmployeeId(),
                 notes: formData.notes,
                 isUpdate: isUpdateMode,
                 managementPin: isUpdateMode ? managementPin : null

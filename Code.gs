@@ -323,6 +323,7 @@ function initializeDatabase() {
   }
 
   initializeItemsTable();
+  populateCompleteItemTable();
 
   return isNewDatabase;
 }
@@ -499,6 +500,75 @@ function initializeItemsTable() {
     }
   } catch (error) {
     handleInitializationError('Item', error);
+  }
+}
+
+function populateCompleteItemTable() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const itemSheet = ss.getSheetByName('Item');
+    const existingItems = getSheetData('Item');
+    const existingMap = {};
+    existingItems.forEach(function(it) {
+      existingMap[it.name + '|' + it.category] = true;
+    });
+
+    const now = new Date();
+    const newEntries = [];
+
+    const products = getSheetData('Products') || [];
+    products.forEach(function(p) {
+      const key = p.name + '|' + (p.category || 'Product');
+      if (!existingMap[key]) {
+        existingMap[key] = true;
+        newEntries.push({
+          name: p.name,
+          category: p.category || 'Product',
+          unit: 'unit',
+          frequency: 'weekly',
+          legacy_key: '',
+          is_prepared: false
+        });
+      }
+    });
+
+    const ingredients = getSheetData('Ingredients') || [];
+    ingredients.forEach(function(i) {
+      const key = i.name + '|' + (i.category || 'Ingredient');
+      if (!existingMap[key]) {
+        existingMap[key] = true;
+        newEntries.push({
+          name: i.name,
+          category: i.category || 'Ingredient',
+          unit: i.unit || '',
+          frequency: 'weekly',
+          legacy_key: '',
+          is_prepared: false
+        });
+      }
+    });
+
+    newEntries.forEach(function(it) {
+      const row = [
+        Utilities.getUuid(),
+        it.name,
+        it.category,
+        it.unit,
+        it.frequency,
+        it.is_prepared,
+        0,
+        0,
+        0,
+        '',
+        it.legacy_key,
+        true,
+        now,
+        now
+      ];
+      appendRowSafe(itemSheet, row);
+    });
+  } catch (error) {
+    handleInitializationError('populateCompleteItemTable', error);
   }
 }
 
@@ -733,14 +803,24 @@ function deleteExistingEntries(dateString) {
   }
 }
 
-// Save daily entry with dual-write capability
-function saveDailyEntry(entryData) {
+// Save daily entry with dual-write capability and enhanced logging
+function saveDailyEntryWithEnhancedLogging(entryData) {
   try {
-    logMigrationActivity('saveDailyEntry_start', {
-      date: entryData.date,
-      isUpdate: entryData.isUpdate,
-      employeeId: entryData.employeeId
-    });
+    logMigrationActivity('saveDailyEntry_received', entryData);
+
+    // Validate and convert inventory structure if needed
+    if (entryData.inventory && (!entryData.rawProteins && !entryData.marinatedProteins)) {
+      const validation = validateInventoryDataStructure(entryData.inventory);
+      if (!validation.valid) {
+        logMigrationActivity('inventory_validation_failed', validation.errors, 'warning');
+      }
+      const converted = updateConvertInventoryDataToNestedFormat(entryData.inventory);
+      entryData.rawProteins = converted.rawProteins;
+      entryData.marinatedProteins = converted.marinatedProteins;
+      entryData.bread = converted.bread;
+      entryData.highCostItems = converted.highCostItems;
+      logMigrationActivity('inventory_conversion_complete', converted);
+    }
 
     const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
 
@@ -803,6 +883,11 @@ function saveDailyEntry(entryData) {
   }
 }
 
+// Wrapper for existing external calls
+function saveDailyEntry(entryData) {
+  return saveDailyEntryWithEnhancedLogging(entryData);
+}
+
 function saveDailyEntryToNewTables(entryData) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
@@ -831,6 +916,14 @@ function saveDailyEntryToNewTables(entryData) {
 function saveDailyEntryToOldTables(entryData) {
   const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
   const employeeId = entryData.employeeId || 'unknown';
+
+  if (entryData.inventory && (!entryData.rawProteins && !entryData.marinatedProteins)) {
+    const converted = updateConvertInventoryDataToNestedFormat(entryData.inventory);
+    entryData.rawProteins = converted.rawProteins;
+    entryData.marinatedProteins = converted.marinatedProteins;
+    entryData.bread = converted.bread;
+    entryData.highCostItems = converted.highCostItems;
+  }
 
   if (entryData.rawProteins) {
     saveRawProteinsData(entryData, entryDate, employeeId);
@@ -918,6 +1011,58 @@ function saveInventorySnapshots(entryData, entryDate, employeeId) {
   }
 }
 
+function updateConvertInventoryDataToNestedFormat(inventory) {
+  const result = {
+    rawProteins: {},
+    marinatedProteins: {},
+    bread: {},
+    highCostItems: {}
+  };
+  if (!inventory) {
+    return result;
+  }
+  const mapping = {
+    rawProteins: ['frozen_chicken_breast', 'chicken_shawarma', 'steak'],
+    marinatedProteins: ['fahita_chicken', 'chicken_sub', 'spicy_strips', 'original_strips', 'marinated_steak'],
+    bread: ['saj_bread', 'pita_bread', 'bread_rolls'],
+    highCostItems: ['cream', 'mayo']
+  };
+  for (const category in mapping) {
+    const items = mapping[category];
+    items.forEach(function(item) {
+      ['opening', 'received', 'expired', 'remaining'].forEach(function(field) {
+        const key = item + '_' + field;
+        const value = inventory[key];
+        if (value !== undefined && value !== null && value !== '') {
+          result[category][key] = value;
+        } else {
+          result[category][key] = value || '';
+        }
+      });
+    });
+  }
+  return result;
+}
+
+function validateInventoryDataStructure(data) {
+  const result = { valid: true, errors: [] };
+  if (!data) {
+    result.valid = false;
+    result.errors.push('Inventory data missing');
+    return result;
+  }
+  for (const key in data) {
+    if (data.hasOwnProperty(key)) {
+      const value = data[key];
+      if (value !== '' && value !== null && value !== undefined && isNaN(parseFloat(value))) {
+        result.valid = false;
+        result.errors.push('Invalid number for ' + key);
+      }
+    }
+  }
+  return result;
+}
+
 // Generate daily report with dual-read logic
 function generateDailyReport(date) {
   try {
@@ -1002,6 +1147,7 @@ function generateReportFromNewTables(targetDateString) {
   let marinatedProteins = null;
   let bread = null;
   let highCostItems = null;
+  let inventory = null;
 
   if (todaySnapshot.length > 0) {
     const legacy = mapSnapshotLogToLegacyFormat(todaySnapshot);
@@ -1009,6 +1155,7 @@ function generateReportFromNewTables(targetDateString) {
     marinatedProteins = legacy.marinatedProteins;
     bread = legacy.bread;
     highCostItems = legacy.highCostItems;
+     inventory = mapSnapshotLogToFormFormat(todaySnapshot);
   }
 
   return {
@@ -1020,6 +1167,7 @@ function generateReportFromNewTables(targetDateString) {
     marinatedProteins: marinatedProteins,
     bread: bread,
     highCostItems: highCostItems,
+    inventory: inventory,
     pettyCashEntries: pettyCashEntries,
     notes: ''
   };
@@ -1048,6 +1196,8 @@ function generateReportFromOldTables(targetDateString) {
   const bread = breadData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
   const highCostItems = highCostData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
 
+  const inventory = mapLegacyDataToFormFormat(rawProteins, marinatedProteins, bread, highCostItems);
+
   return {
     date: targetDateString,
     dataFound: !!(todayShawarma || todaySales || rawProteins || marinatedProteins || bread || highCostItems),
@@ -1057,6 +1207,7 @@ function generateReportFromOldTables(targetDateString) {
     marinatedProteins: marinatedProteins,
     bread: bread,
     highCostItems: highCostItems,
+    inventory: inventory,
     pettyCashEntries: pettyCashEntries,
     notes: ''
   };
@@ -1833,6 +1984,38 @@ function mapSnapshotLogToLegacyFormat(snapshotEntries) {
   });
 
   return legacy;
+}
+
+function mapSnapshotLogToFormFormat(snapshotEntries) {
+  const items = getSheetData('Item');
+  const itemMap = {};
+  items.forEach(function(it) {
+    itemMap[it.id] = it;
+  });
+
+  const inventory = {};
+  snapshotEntries.forEach(function(entry) {
+    const item = itemMap[entry.item_id];
+    if (!item || !item.legacy_key) return;
+    const field = item.legacy_key + '_remaining';
+    inventory[field] = entry.closing_quantity;
+  });
+
+  return inventory;
+}
+
+function mapLegacyDataToFormFormat(raw, marinated, bread, high) {
+  const inventory = {};
+  const groups = [raw, marinated, bread, high];
+  groups.forEach(function(group) {
+    if (!group) return;
+    for (const key in group) {
+      if (group.hasOwnProperty(key) && /_remaining$/.test(key)) {
+        inventory[key] = group[key];
+      }
+    }
+  });
+  return inventory;
 }
 
 // Legacy key mapping functions
