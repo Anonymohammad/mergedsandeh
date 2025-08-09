@@ -2,16 +2,53 @@
 const normalizeNumberInput = (value) => value.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
 
 function getCurrentEmployeeSession() {
-    return window.currentEmployeeSession || { employee_id: 'management', employee_name: 'Management', role: 'management' };
+    // Use existing session if already determined
+    if (window.currentEmployeeSession) return window.currentEmployeeSession;
+
+    // Management can override the active session
+    if (window.overrideEmployeeSession) {
+        window.currentEmployeeSession = window.overrideEmployeeSession;
+        return window.currentEmployeeSession;
+    }
+
+    let session = null;
+
+    // Attempt to retrieve session from login token or PIN-based lookup
+    if (typeof window.getEmployeeSession === 'function') {
+        session = window.getEmployeeSession();
+    } else {
+        const cookies = document.cookie.split(';').reduce((acc, cookie) => {
+            const [key, value] = cookie.trim().split('=');
+            if (key) acc[key] = value;
+            return acc;
+        }, {});
+        if (cookies.employeeId && cookies.sessionExpiry && new Date(cookies.sessionExpiry) > new Date()) {
+            session = {
+                employeeId: cookies.employeeId,
+                employeeName: cookies.employeeName,
+                employeeRole: cookies.employeeRole
+            };
+        }
+    }
+
+    if (session) {
+        window.currentEmployeeSession = {
+            employee_id: session.employeeId,
+            employee_name: session.employeeName || 'Management',
+            role: session.employeeRole || 'employee'
+        };
+        return window.currentEmployeeSession;
+    }
+
+    // No authenticated employee - default to management
+    window.currentEmployeeSession = { employee_id: 'management', employee_name: 'Management', role: 'management' };
+    return window.currentEmployeeSession;
 }
 
-function initializeEmployeeContext(employeeSession) {
-    if (employeeSession) {
-        window.currentEmployeeSession = {
-            employee_id: employeeSession.employeeId || 'management',
-            employee_name: employeeSession.employeeName || 'Management',
-            role: employeeSession.employeeRole || 'employee'
-        };
+function initializeEmployeeContext() {
+    const session = getCurrentEmployeeSession();
+    if (session && session.employee_id && session.employee_id !== 'management') {
+        window.currentEmployeeSession = session;
     } else {
         window.currentEmployeeSession = { employee_id: 'management', employee_name: 'Management', role: 'management' };
     }
@@ -226,14 +263,14 @@ function PettyCashModal({ open, onClose, entries, entry, setEntry, editingIndex,
     );
 }
 
-function BilingualEmployeeDailyEntryTab({ employeeSession }) {
+function BilingualEmployeeDailyEntryTab(props) {
     const { t } = React.useContext(window.LanguageContext);
     const [employeeContext, setEmployeeContext] = React.useState(getCurrentEmployeeSession());
 
     React.useEffect(() => {
-        initializeEmployeeContext(employeeSession);
+        initializeEmployeeContext();
         setEmployeeContext(getCurrentEmployeeSession());
-    }, [employeeSession]);
+    }, [props.employeeSession]);
 
     const validateTranslations = () => {
         const requiredKeys = [
