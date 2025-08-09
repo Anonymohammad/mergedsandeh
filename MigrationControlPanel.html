@@ -64,6 +64,11 @@ function MigrationControlPanel() {
 
   return (
     <div className="p-4">
+      <div className="mb-4">
+        <button className="px-3 py-1 bg-gray-200 rounded" onClick={() => window.location.href = 'ManagementDashboard.html'}>
+          ← Back to Dashboard
+        </button>
+      </div>
       <h2 className="text-xl font-bold mb-4">Migration Control Panel</h2>
       <div className="mb-4">
         <div>Progress: {progress.migratedDates}/{progress.totalDates}</div>
