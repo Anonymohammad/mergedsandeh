@@ -119,6 +119,7 @@
         suppliers: "Suppliers",
         employees: "Staff",
         reports: "Reports",
+        migration: "Migration",
         
         // Common
         language: "Language",
@@ -433,6 +434,7 @@
         suppliers: "الموردين",
         employees: "الموظفين",
         reports: "التقارير",
+        migration: "الترحيل",
         
         // Common
         language: "اللغة",
@@ -986,7 +988,8 @@
                             { id: 'inventory', label: t('inventory'), icon: '📦' },
                             { id: 'suppliers', label: t('suppliers'), icon: '🚛' },
                             { id: 'employees', label: t('employees'), icon: '👥' },
-                            { id: 'reports', label: t('reports'), icon: '📈' }
+                            { id: 'reports', label: t('reports'), icon: '📈' },
+                            { id: 'migration', label: t('migration'), icon: '🛠' }
                         ];
                     default:
                         return [
@@ -1400,9 +1403,15 @@ function DailyEntryTab({ employeeSession }) {
                 
             case 'employees':
                 return React.createElement(EmployeesTab);
-                
+
             case 'reports':
                 return React.createElement(ReportsTab);
+
+            case 'migration':
+                if (typeof window.MigrationControlPanel !== 'undefined') {
+                    return React.createElement(window.MigrationControlPanel);
+                }
+                return React.createElement('div', { className: 'p-4' }, 'Migration control panel loading...');
                 
             case '':
                 // Don't set state during render - just return loading
@@ -1567,6 +1576,7 @@ function DailyEntryTab({ employeeSession }) {
     <?!= include('BilingualEmployeeDailyEntryTab'); ?>
     <?!= include('BilingualEmployeeWeeklyEntryTab'); ?>
     <?!= include('ManagementDashboard'); ?>
+    <?!= include('MigrationControlPanel'); ?>
     <?!= include('DailyEntryTab'); ?>
 
     <script>
