@@ -3015,7 +3015,6 @@ function buildCompleteItemDatabase() {
 
   // Step 1: Get existing daily tracking items (keep these as-is)
   const existingItems = getSheetData('Item');
-  const existingLegacyKeys = existingItems.map(item => item.legacy_key).filter(key => key);
 
   // Step 2: Get all products from Products table
   const products = getSheetData('Products');
@@ -3048,7 +3047,7 @@ function buildCompleteItemDatabase() {
         max_stock: 0,
         storage_location: 'Kitchen',
         legacy_key: '',
-        active: product.active || true,
+        active: product.active !== false,
         created_at: new Date(),
         updated_at: new Date()
       });
@@ -3169,15 +3168,17 @@ function linkRecipesToInventoryItems() {
     }
   });
 
-  const updatedRecipes = recipes.map(recipe => ({
-    ...recipe,
-    item_id: ingredientToItemMap[recipe.ingredient_id] || recipe.ingredient_id
-  }));
+  let mappedCount = 0;
+  const updatedRecipes = recipes.map(recipe => {
+    const itemId = ingredientToItemMap[recipe.ingredient_id];
+    if (itemId) mappedCount++;
+    return { ...recipe, item_id: itemId || recipe.ingredient_id };
+  });
 
   return {
-    mappedRecipes: updatedRecipes.length,
-    unmappedRecipes: recipes.length - updatedRecipes.length,
-    ingredientToItemMap: ingredientToItemMap
+    mappedRecipes: mappedCount,
+    unmappedRecipes: recipes.length - mappedCount,
+    ingredientToItemMap
   };
 }
 
