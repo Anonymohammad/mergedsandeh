@@ -200,6 +200,23 @@ const MIGRATION_CONFIG = {
   validateMigration: true
 };
 
+// Required item mappings with legacy keys
+const LEGACY_ITEMS = [
+  { name: 'Frozen Chicken Breast', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'frozen_chicken_breast', is_prepared: false },
+  { name: 'Chicken Shawarma', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'chicken_shawarma', is_prepared: false },
+  { name: 'Steak', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'steak', is_prepared: false },
+  { name: 'Fahita Chicken', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'fahita_chicken', is_prepared: true },
+  { name: 'Chicken Sub', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'chicken_sub', is_prepared: true },
+  { name: 'Spicy Strips', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'spicy_strips', is_prepared: true },
+  { name: 'Original Strips', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'original_strips', is_prepared: true },
+  { name: 'Marinated Steak', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'marinated_steak', is_prepared: true },
+  { name: 'Saj Bread', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'saj_bread', is_prepared: false },
+  { name: 'Pita Bread', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'pita_bread', is_prepared: false },
+  { name: 'Bread Rolls', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'bread_rolls', is_prepared: false },
+  { name: 'Cream', category: 'High Cost Items', unit: 'kg', frequency: 'daily', legacy_key: 'cream', is_prepared: false },
+  { name: 'Mayo', category: 'High Cost Items', unit: 'kg', frequency: 'daily', legacy_key: 'mayo', is_prepared: false }
+];
+
 function logMigrationActivity(activity, details, status = 'info') {
   if (!MIGRATION_CONFIG.logMigration) return;
 
@@ -338,6 +355,7 @@ function initializeDatabase() {
   }
 
   initializeItemsTable();
+  initializeLegacyMappings();
 
   return isNewDatabase;
 }
@@ -476,23 +494,8 @@ function initializeItemsTable() {
 
     if (isSheetEmpty(sheet)) {
       const now = new Date();
-      const items = [
-        { name: 'Frozen Chicken Breast', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'frozen_chicken_breast', is_prepared: false },
-        { name: 'Chicken Shawarma', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'chicken_shawarma', is_prepared: false },
-        { name: 'Steak', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'steak', is_prepared: false },
-        { name: 'Fahita Chicken', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'fahita_chicken', is_prepared: true },
-        { name: 'Chicken Sub', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'chicken_sub', is_prepared: true },
-        { name: 'Spicy Strips', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'spicy_strips', is_prepared: true },
-        { name: 'Original Strips', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'original_strips', is_prepared: true },
-        { name: 'Marinated Steak', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'marinated_steak', is_prepared: true },
-        { name: 'Saj Bread', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'saj_bread', is_prepared: false },
-        { name: 'Pita Bread', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'pita_bread', is_prepared: false },
-        { name: 'Bread Rolls', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'bread_rolls', is_prepared: false },
-        { name: 'Cream', category: 'High Cost Items', unit: 'kg', frequency: 'daily', legacy_key: 'cream', is_prepared: false },
-        { name: 'Mayo', category: 'High Cost Items', unit: 'kg', frequency: 'daily', legacy_key: 'mayo', is_prepared: false }
-      ];
 
-      items.forEach(function(it) {
+      LEGACY_ITEMS.forEach(function(it) {
         const row = [
           Utilities.getUuid(),
           it.name,
@@ -514,6 +517,70 @@ function initializeItemsTable() {
     }
   } catch (error) {
     handleInitializationError('Item', error);
+  }
+}
+
+function initializeLegacyMappings() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Item');
+    if (!sheet) {
+      return;
+    }
+
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const nameIndex = headers.indexOf('name');
+    const legacyIndex = headers.indexOf('legacy_key');
+
+    const existingByName = {};
+    const existingByLegacy = {};
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const name = String(row[nameIndex]).trim().toLowerCase();
+      const legacy = String(row[legacyIndex]).trim().toLowerCase();
+      if (name) existingByName[name] = i + 1; // row number
+      if (legacy) existingByLegacy[legacy] = i + 1;
+    }
+
+    const now = new Date();
+
+    LEGACY_ITEMS.forEach(item => {
+      const legacyKey = item.legacy_key.toLowerCase();
+      const nameKey = item.name.toLowerCase();
+
+      if (existingByLegacy[legacyKey]) {
+        // Item already has legacy key mapping
+        return;
+      }
+
+      if (existingByName[nameKey]) {
+        // Update missing legacy key for existing item
+        sheet.getRange(existingByName[nameKey], legacyIndex + 1).setValue(item.legacy_key);
+      } else {
+        // Insert new item with mapping
+        const row = [
+          Utilities.getUuid(),
+          item.name,
+          item.category,
+          item.unit,
+          item.frequency,
+          item.is_prepared,
+          0,
+          0,
+          0,
+          '',
+          item.legacy_key,
+          true,
+          now,
+          now
+        ];
+        appendRowSafe(sheet, row);
+      }
+    });
+  } catch (error) {
+    handleInitializationError('Item Legacy Mappings', error);
   }
 }
 
@@ -3476,6 +3543,10 @@ function getVarianceReport(date) {
     variance: variance,
     alerts: generateVarianceAlerts(variance)
   };
+}
+
+if (typeof global !== 'undefined') {
+  global.initializeLegacyMappings = initializeLegacyMappings;
 }
 
 
