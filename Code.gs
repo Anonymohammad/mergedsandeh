@@ -821,7 +821,7 @@ function saveDailyEntry(entryData) {
 function saveDailyEntryToNewTables(entryData) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
-  const employeeId = entryData.employeeId || 'unknown';
+  const employeeId = entryData.employeeId || entryData.employee_id || 'unknown';
 
   if (entryData.shawarmaStack) {
     saveShawarmaStackData(entryData, entryDate, employeeId);
@@ -867,8 +867,7 @@ function saveDailyEntryToNewTables(entryData) {
 
 function saveDailyEntryToOldTables(entryData) {
   const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
-  const employeeId = entryData.employeeId || 'unknown';
-  const employeeName = entryData.employeeName || 'Unknown';
+  const employeeId = entryData.employeeId || entryData.employee_id || 'unknown';
 
   let inventoryData;
   if (entryData.rawProteins || entryData.marinatedProteins || entryData.bread || entryData.highCostItems) {
@@ -882,30 +881,14 @@ function saveDailyEntryToOldTables(entryData) {
     inventoryData = convertInventoryDataToNestedFormat(entryData.inventory);
   }
 
-  if (entryData.shawarmaStack) {
-    saveToOldShawarmaTable(entryData, entryDate, employeeId);
-  }
-
-  if (entryData.sales) {
-    saveToOldSalesTable(entryData, entryDate, employeeId);
-  }
-
   if (inventoryData) {
-    saveToOldInventoryTables(inventoryData, entryDate, employeeId, employeeName);
+    saveToOldInventoryTables(inventoryData, entryDate, employeeId);
   }
 
   return { success: true, method: 'old_tables' };
 }
-
-function saveToOldShawarmaTable(entryData, entryDate, employeeId) {
-  saveShawarmaStackData(entryData, entryDate, employeeId);
-}
-
-function saveToOldSalesTable(entryData, entryDate, employeeId) {
-  saveEnhancedSalesData(entryData, entryDate, employeeId);
-}
-
-function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employeeName) {
+ 
+function saveToOldInventoryTables(inventoryData, entryDate, employeeId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
   if (inventoryData.rawProteins && Object.keys(inventoryData.rawProteins).length > 0) {
@@ -926,7 +909,6 @@ function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employee
       inventoryData.rawProteins.steak_expired || '',
       inventoryData.rawProteins.steak_remaining || '',
       employeeId,
-      employeeName,
       new Date(),
       new Date()
     ];
@@ -959,7 +941,6 @@ function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employee
       inventoryData.marinatedProteins.marinated_steak_expired || '',
       inventoryData.marinatedProteins.marinated_steak_remaining || '',
       employeeId,
-      employeeName,
       new Date(),
       new Date()
     ];
@@ -984,7 +965,6 @@ function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employee
       inventoryData.bread.bread_rolls_expired || '',
       inventoryData.bread.bread_rolls_remaining || '',
       employeeId,
-      employeeName,
       new Date(),
       new Date()
     ];
@@ -1005,7 +985,6 @@ function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employee
       inventoryData.highCostItems.mayo_expired || '',
       inventoryData.highCostItems.mayo_remaining || '',
       employeeId,
-      employeeName,
       new Date(),
       new Date()
     ];
