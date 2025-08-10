@@ -1,6 +1,17 @@
 <script type="text/babel">
 const normalizeNumberInput = (value) => value.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
 
+function getCurrentEmployeeId(session) {
+    if (session && session.employeeId) return session.employeeId;
+    try {
+        if (typeof getEmployeeSession === 'function') {
+            const s = getEmployeeSession();
+            if (s && s.employeeId) return s.employeeId;
+        }
+    } catch (e) {}
+    return 'management';
+}
+
 function PettyCashEntryForm({ entry, onChange, onSubmit, onCancel, isEditing, categories, t }) {
     return React.createElement('div', { className: 'space-y-2 petty-cash-form' },
         React.createElement('label', { className: 'block text-sm font-medium' }, t('category')),
@@ -651,7 +662,7 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                 notes: formData.notes,
                 isUpdate: isUpdateMode,
                 managementPin: isUpdateMode ? managementPin : null,
-                employeeId: employeeSession.employeeId
+                employeeId: getCurrentEmployeeId(employeeSession)
             };
             
             await google.script.run

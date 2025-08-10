@@ -233,9 +233,18 @@ function doGet(e) {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// Include HTML files
+// Include HTML files with error handling
 function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+  try {
+    // Use template evaluation to handle files that contain scriptlets
+    return HtmlService.createTemplateFromFile(filename)
+      .evaluate()
+      .getContent();
+  } catch (error) {
+    // Log the failure and return empty string so the app continues to load
+    Logger.log('Include failed for ' + filename + ': ' + error);
+    return '';
+  }
 }
 
 // Helper functions for validation and error handling
@@ -502,6 +511,64 @@ function initializeItemsTable() {
   }
 }
 
+function populateCompleteItemTable() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var itemSheet = ss.getSheetByName('Item');
+  var existing = getSheetData('Item');
+  var existingMap = {};
+  existing.forEach(function(it) {
+    var key = (it.name + '|' + it.category).toLowerCase();
+    existingMap[key] = true;
+  });
+
+  var now = new Date();
+  var products = getSheetData('Products');
+  var ingredients = getSheetData('Ingredients');
+
+  var ensureDaily = [
+    { name: 'Frozen Chicken Breast', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'frozen_chicken_breast', is_prepared: false },
+    { name: 'Chicken Shawarma', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'chicken_shawarma', is_prepared: false },
+    { name: 'Steak', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'steak', is_prepared: false },
+    { name: 'Fahita Chicken', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'fahita_chicken', is_prepared: true },
+    { name: 'Chicken Sub', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'chicken_sub', is_prepared: true },
+    { name: 'Spicy Strips', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'spicy_strips', is_prepared: true },
+    { name: 'Original Strips', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'original_strips', is_prepared: true },
+    { name: 'Marinated Steak', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'marinated_steak', is_prepared: true },
+    { name: 'Saj Bread', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'saj_bread', is_prepared: false },
+    { name: 'Pita Bread', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'pita_bread', is_prepared: false },
+    { name: 'Bread Rolls', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'bread_rolls', is_prepared: false },
+    { name: 'Cream', category: 'High Cost Items', unit: 'kg', frequency: 'daily', legacy_key: 'cream', is_prepared: false },
+    { name: 'Mayo', category: 'High Cost Items', unit: 'kg', frequency: 'daily', legacy_key: 'mayo', is_prepared: false }
+  ];
+
+  ensureDaily.forEach(function(it) {
+    var key = (it.name + '|' + it.category).toLowerCase();
+    if (!existingMap[key]) {
+      var row = [Utilities.getUuid(), it.name, it.category, it.unit, it.frequency, it.is_prepared, 0, 0, 0, '', it.legacy_key, true, now, now];
+      appendRowSafe(itemSheet, row);
+      existingMap[key] = true;
+    }
+  });
+
+  products.forEach(function(p) {
+    var key = (p.name + '|' + p.category).toLowerCase();
+    if (!existingMap[key]) {
+      var row = [Utilities.getUuid(), p.name, p.category, 'unit', 'weekly', true, 0, 0, 0, '', '', true, now, now];
+      appendRowSafe(itemSheet, row);
+      existingMap[key] = true;
+    }
+  });
+
+  ingredients.forEach(function(i) {
+    var key = (i.name + '|' + i.category).toLowerCase();
+    if (!existingMap[key]) {
+      var row = [Utilities.getUuid(), i.name, i.category, i.unit || 'unit', 'weekly', false, 0, 0, 0, '', '', true, now, now];
+      appendRowSafe(itemSheet, row);
+      existingMap[key] = true;
+    }
+  });
+}
+
 // Enhanced employee validation (EXACT from Employee Code.gs)
 function validateEmployeePin(pin) {
   try {
@@ -735,39 +802,53 @@ function deleteExistingEntries(dateString) {
 
 // Save daily entry with dual-write capability
 function saveDailyEntry(entryData) {
+  return saveDailyEntryWithEnhancedLogging(entryData);
+}
+
+function saveDailyEntryWithEnhancedLogging(entryData) {
   try {
-    logMigrationActivity('saveDailyEntry_start', {
+    logMigrationActivity('saveDailyEntry_received', {
       date: entryData.date,
       isUpdate: entryData.isUpdate,
-      employeeId: entryData.employeeId
+      employeeId: entryData.employeeId,
+      hasInventory: !!entryData.inventory
     });
 
-    const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
+    var validation = validateInventoryDataStructure(entryData.inventory);
+    if (!validation.valid) {
+      logMigrationActivity('inventory_validation_failed', { message: validation.message }, 'error');
+      return JSON.stringify({ success: false, message: validation.message });
+    }
+
+    if (entryData.inventory && !entryData.rawProteins && !entryData.marinatedProteins && !entryData.bread && !entryData.highCostItems) {
+      try {
+        var converted = convertInventoryDataToNestedFormat(entryData.inventory);
+        entryData.rawProteins = converted.rawProteins;
+        entryData.marinatedProteins = converted.marinatedProteins;
+        entryData.bread = converted.bread;
+        entryData.highCostItems = converted.highCostItems;
+        logMigrationActivity('inventory_conversion_success', { keys: Object.keys(entryData.inventory) }, 'info');
+      } catch (convError) {
+        logMigrationActivity('inventory_conversion_error', { error: convError.message }, 'error');
+        return JSON.stringify({ success: false, message: convError.message });
+      }
+    }
+
+    var entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
 
     if (entryData.isUpdate) {
       if (!entryData.managementPin || !validateManagementPin(entryData.managementPin)) {
-        return JSON.stringify({
-          success: false,
-          message: 'Invalid management PIN. Update not authorized.'
-        });
+        return JSON.stringify({ success: false, message: 'Invalid management PIN. Update not authorized.' });
       }
-
       deleteExistingEntries(entryDate);
     }
 
     if (MIGRATION_CONFIG.enabled) {
       try {
-        const newSaveResult = saveDailyEntryToNewTables(entryData);
-        logMigrationActivity('new_tables_save', {
-          date: entryDate,
-          success: newSaveResult.success
-        }, newSaveResult.success ? 'success' : 'error');
+        var newSaveResult = saveDailyEntryToNewTables(entryData);
+        logMigrationActivity('new_tables_save', { date: entryDate, success: newSaveResult.success }, newSaveResult.success ? 'success' : 'error');
       } catch (error) {
-        logMigrationActivity('new_tables_save_error', {
-          date: entryDate,
-          error: error.message
-        }, 'error');
-
+        logMigrationActivity('new_tables_save_error', { date: entryDate, error: error.message }, 'error');
         if (!MIGRATION_CONFIG.dualWriteMode) {
           throw error;
         }
@@ -776,30 +857,18 @@ function saveDailyEntry(entryData) {
 
     if (MIGRATION_CONFIG.dualWriteMode) {
       try {
-        const oldSaveResult = saveDailyEntryToOldTables(entryData);
-        logMigrationActivity('old_tables_save', {
-          date: entryDate,
-          success: oldSaveResult.success
-        }, oldSaveResult.success ? 'success' : 'warning');
+        var oldSaveResult = saveDailyEntryToOldTables(entryData);
+        logMigrationActivity('old_tables_save', { date: entryDate, success: oldSaveResult.success }, oldSaveResult.success ? 'success' : 'warning');
       } catch (error) {
-        logMigrationActivity('old_tables_save_error', {
-          date: entryDate,
-          error: error.message
-        }, 'warning');
+        logMigrationActivity('old_tables_save_error', { date: entryDate, error: error.message }, 'warning');
       }
     }
 
-    return JSON.stringify({
-      success: true,
-      message: entryData.isUpdate ? 'Entry updated successfully!' : 'Entry saved successfully!'
-    });
+    return JSON.stringify({ success: true, message: entryData.isUpdate ? 'Entry updated successfully!' : 'Entry saved successfully!' });
 
   } catch (error) {
-    logMigrationActivity('saveDailyEntry_error', {
-      date: entryData.date,
-      error: error.message
-    }, 'error');
-    throw error;
+    logMigrationActivity('saveDailyEntry_error', { date: entryData.date, error: error.message }, 'error');
+    return JSON.stringify({ success: false, message: error.message });
   }
 }
 
@@ -831,7 +900,13 @@ function saveDailyEntryToNewTables(entryData) {
 function saveDailyEntryToOldTables(entryData) {
   const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
   const employeeId = entryData.employeeId || 'unknown';
-
+  if (entryData.inventory && !entryData.rawProteins && !entryData.marinatedProteins && !entryData.bread && !entryData.highCostItems) {
+    var converted = convertInventoryDataToNestedFormat(entryData.inventory);
+    entryData.rawProteins = converted.rawProteins;
+    entryData.marinatedProteins = converted.marinatedProteins;
+    entryData.bread = converted.bread;
+    entryData.highCostItems = converted.highCostItems;
+  }
   if (entryData.rawProteins) {
     saveRawProteinsData(entryData, entryDate, employeeId);
   }
@@ -1002,6 +1077,7 @@ function generateReportFromNewTables(targetDateString) {
   let marinatedProteins = null;
   let bread = null;
   let highCostItems = null;
+  let inventory = null;
 
   if (todaySnapshot.length > 0) {
     const legacy = mapSnapshotLogToLegacyFormat(todaySnapshot);
@@ -1009,6 +1085,7 @@ function generateReportFromNewTables(targetDateString) {
     marinatedProteins = legacy.marinatedProteins;
     bread = legacy.bread;
     highCostItems = legacy.highCostItems;
+    inventory = mapSnapshotLogToFormFormat(todaySnapshot);
   }
 
   return {
@@ -1020,6 +1097,7 @@ function generateReportFromNewTables(targetDateString) {
     marinatedProteins: marinatedProteins,
     bread: bread,
     highCostItems: highCostItems,
+    inventory: inventory,
     pettyCashEntries: pettyCashEntries,
     notes: ''
   };
@@ -1047,6 +1125,8 @@ function generateReportFromOldTables(targetDateString) {
   const marinatedProteins = marinatedProteinsData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
   const bread = breadData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
   const highCostItems = highCostData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
+  var legacy = { rawProteins: rawProteins || {}, marinatedProteins: marinatedProteins || {}, bread: bread || {}, highCostItems: highCostItems || {} };
+  var inventory = flattenInventoryData(legacy);
 
   return {
     date: targetDateString,
@@ -1057,6 +1137,7 @@ function generateReportFromOldTables(targetDateString) {
     marinatedProteins: marinatedProteins,
     bread: bread,
     highCostItems: highCostItems,
+    inventory: inventory,
     pettyCashEntries: pettyCashEntries,
     notes: ''
   };
@@ -1833,6 +1914,84 @@ function mapSnapshotLogToLegacyFormat(snapshotEntries) {
   });
 
   return legacy;
+}
+
+function getInventoryFieldMappings() {
+  return {
+    chicken_breast_remaining: { group: 'rawProteins', field: 'frozen_chicken_breast_remaining' },
+    chicken_breast_received: { group: 'rawProteins', field: 'frozen_chicken_breast_received' },
+    chicken_shawarma_remaining: { group: 'rawProteins', field: 'chicken_shawarma_remaining' },
+    chicken_shawarma_received: { group: 'rawProteins', field: 'chicken_shawarma_received' },
+    steak_remaining: { group: 'rawProteins', field: 'steak_remaining' },
+    steak_received: { group: 'rawProteins', field: 'steak_received' },
+    fahita_chicken_remaining: { group: 'marinatedProteins', field: 'fahita_chicken_remaining' },
+    fahita_chicken_received: { group: 'marinatedProteins', field: 'fahita_chicken_received' },
+    chicken_sub_remaining: { group: 'marinatedProteins', field: 'chicken_sub_remaining' },
+    chicken_sub_received: { group: 'marinatedProteins', field: 'chicken_sub_received' },
+    spicy_strips_remaining: { group: 'marinatedProteins', field: 'spicy_strips_remaining' },
+    spicy_strips_received: { group: 'marinatedProteins', field: 'spicy_strips_received' },
+    original_strips_remaining: { group: 'marinatedProteins', field: 'original_strips_remaining' },
+    original_strips_received: { group: 'marinatedProteins', field: 'original_strips_received' },
+    marinated_steak_remaining: { group: 'marinatedProteins', field: 'marinated_steak_remaining' },
+    marinated_steak_received: { group: 'marinatedProteins', field: 'marinated_steak_received' },
+    saj_bread_remaining: { group: 'bread', field: 'saj_bread_remaining' },
+    saj_bread_received: { group: 'bread', field: 'saj_bread_received' },
+    pita_bread_remaining: { group: 'bread', field: 'pita_bread_remaining' },
+    pita_bread_received: { group: 'bread', field: 'pita_bread_received' },
+    bread_roll_remaining: { group: 'bread', field: 'bread_rolls_remaining' },
+    bread_roll_received: { group: 'bread', field: 'bread_rolls_received' },
+    cream_remaining: { group: 'highCostItems', field: 'cream_remaining' },
+    cream_received: { group: 'highCostItems', field: 'cream_received' },
+    mayo_remaining: { group: 'highCostItems', field: 'mayo_remaining' },
+    mayo_received: { group: 'highCostItems', field: 'mayo_received' }
+  };
+}
+
+function convertInventoryDataToNestedFormat(inventory) {
+  var mappings = getInventoryFieldMappings();
+  var result = { rawProteins: {}, marinatedProteins: {}, bread: {}, highCostItems: {} };
+  if (!inventory) { return result; }
+  for (var key in inventory) {
+    if (inventory.hasOwnProperty(key) && mappings[key]) {
+      var m = mappings[key];
+      result[m.group][m.field] = inventory[key] !== undefined && inventory[key] !== null ? inventory[key] : '';
+    }
+  }
+  return result;
+}
+
+function flattenInventoryData(legacy) {
+  var mappings = getInventoryFieldMappings();
+  var inventory = {};
+  if (!legacy) { return inventory; }
+  for (var flat in mappings) {
+    var m = mappings[flat];
+    if (legacy[m.group] && typeof legacy[m.group][m.field] !== 'undefined') {
+      inventory[flat] = legacy[m.group][m.field];
+    }
+  }
+  return inventory;
+}
+
+function mapSnapshotLogToFormFormat(snapshotEntries) {
+  var legacy = mapSnapshotLogToLegacyFormat(snapshotEntries);
+  return flattenInventoryData(legacy);
+}
+
+function validateInventoryDataStructure(data) {
+  var result = { valid: true, message: '' };
+  if (!data) { return result; }
+  for (var key in data) {
+    if (data.hasOwnProperty(key) && /_(remaining|received|opening|expired)$/.test(key)) {
+      var value = data[key];
+      if (value !== '' && value !== null && isNaN(parseFloat(value))) {
+        result.valid = false;
+        result.message = 'Invalid numeric value for ' + key;
+        break;
+      }
+    }
+  }
+  return result;
 }
 
 // Legacy key mapping functions
