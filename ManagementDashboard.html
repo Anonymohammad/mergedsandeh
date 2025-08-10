@@ -167,8 +167,14 @@ function ManagementDashboard() {
 
                         google.script.run
                             .withSuccessHandler(report => {
-                                setVarianceReport(report.variance);
-                                setAlerts(prev => [...prev, ...report.alerts]);
+                                // Handle cases where the Apps Script returns null or
+                                // doesn't include the expected variance data
+                                if (report && report.variance) {
+                                    setVarianceReport(report.variance);
+                                }
+                                if (report && report.alerts) {
+                                    setAlerts(prev => [...prev, ...report.alerts]);
+                                }
                             })
                             .getVarianceReport(dateParam);
                     } catch (parseError) {
