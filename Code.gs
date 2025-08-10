@@ -827,8 +827,25 @@ function saveDailyEntryToNewTables(entryData) {
     saveShawarmaStackData(entryData, entryDate, employeeId);
   }
 
-  if (entryData.rawProteins || entryData.marinatedProteins || entryData.bread || entryData.highCostItems) {
-    saveInventorySnapshots(entryData, entryDate, employeeId);
+  // Handle inventory data whether provided as nested sections or as a flat `inventory` object
+  let inventoryData = null;
+  const hasNestedSections = entryData.rawProteins || entryData.marinatedProteins || entryData.bread || entryData.highCostItems;
+
+  if (hasNestedSections) {
+    // Use the explicitly provided category sections
+    inventoryData = {
+      rawProteins: entryData.rawProteins || {},
+      marinatedProteins: entryData.marinatedProteins || {},
+      bread: entryData.bread || {},
+      highCostItems: entryData.highCostItems || {}
+    };
+  } else if (entryData.inventory) {
+    // Convert legacy `inventory` format to nested category sections
+    inventoryData = convertInventoryDataToNestedFormat(entryData.inventory);
+  }
+
+  if (inventoryData) {
+    saveInventorySnapshots(inventoryData, entryDate, employeeId);
   }
 
   let dailySalesId = null;
