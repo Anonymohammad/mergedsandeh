@@ -233,9 +233,18 @@ function doGet(e) {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// Include HTML files
+// Include HTML files with error handling
 function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+  try {
+    // Use template evaluation to handle files that contain scriptlets
+    return HtmlService.createTemplateFromFile(filename)
+      .evaluate()
+      .getContent();
+  } catch (error) {
+    // Log the failure and return empty string so the app continues to load
+    Logger.log('Include failed for ' + filename + ': ' + error);
+    return '';
+  }
 }
 
 // Helper functions for validation and error handling
