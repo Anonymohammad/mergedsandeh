@@ -2,6 +2,16 @@
 <script type="text/babel">
 const normalizeNumberInput = (value) => value.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
 
+function getCurrentEmployeeId() {
+    try {
+        if (typeof getEmployeeSession === 'function') {
+            const session = getEmployeeSession();
+            if (session && session.employeeId) return session.employeeId;
+        }
+    } catch (e) {}
+    return 'management';
+}
+
 function PettyCashEntryForm({ entry, onChange, onSubmit, onCancel, isEditing, categories, t }) {
     return React.createElement('div', { className: 'space-y-2 petty-cash-form' },
         React.createElement('select', {
@@ -476,7 +486,7 @@ function DailyEntryTab() {
                                 ...prev,
                                 rawProteins: {
                                     ...prev.rawProteins,
-                                    frozen_chicken_breast_opening: data.inventory.frozen_chicken_breast_remaining || '',
+                                    frozen_chicken_breast_opening: data.inventory.chicken_breast_remaining || '',
                                     chicken_shawarma_opening: data.inventory.chicken_shawarma_remaining || '',
                                     steak_opening: data.inventory.steak_remaining || ''
                                 },
@@ -486,13 +496,13 @@ function DailyEntryTab() {
                                     chicken_sub_opening: data.inventory.chicken_sub_remaining || '',
                                     spicy_strips_opening: data.inventory.spicy_strips_remaining || '',
                                     original_strips_opening: data.inventory.original_strips_remaining || '',
-                                     marinated_steak_opening: data.inventory.marinated_steak_remaining || ''
+                                    marinated_steak_opening: data.inventory.marinated_steak_remaining || ''
                                 },
                                 bread: {
                                     ...prev.bread,
                                     saj_bread_opening: data.inventory.saj_bread_remaining || '',
                                     pita_bread_opening: data.inventory.pita_bread_remaining || '',
-                                    bread_rolls_opening: data.inventory.bread_rolls_remaining || ''
+                                    bread_rolls_opening: data.inventory.bread_roll_remaining || ''
                                 },
                                 highCostItems: {
                                     ...prev.highCostItems,
@@ -746,7 +756,8 @@ function DailyEntryTab() {
                 inventory: inventory,
                 notes: formData.notes,
                 isUpdate: isUpdateMode,
-                managementPin: isUpdateMode ? managementPin : null
+                managementPin: isUpdateMode ? managementPin : null,
+                employeeId: getCurrentEmployeeId()
             };
             
             await google.script.run
