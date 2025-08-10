@@ -1544,21 +1544,21 @@ function DailyEntryTab({ employeeSession }) {
             return children;
         }
 
-        // Initialize the unified app
-        window.initializeRestaurantApp = function() {
-            console.log("Initializing unified restaurant React app...");
-            try {
-                ReactDOM.render(
-                    React.createElement(ErrorBoundary, null, 
-                        React.createElement(App)
-                    ), 
-                    document.getElementById('root')
-                );
-                console.log("Unified restaurant app rendered successfully");
-            } catch (error) {
-                console.error("Error rendering unified restaurant app:", error);
-            }
-        };
+         // Initialize the unified app
+         window.initializeRestaurantApp = function() {
+             console.log("Initializing unified restaurant React app...");
+             try {
+                 const root = ReactDOM.createRoot(document.getElementById('root'));
+                 root.render(
+                     React.createElement(ErrorBoundary, null,
+                         React.createElement(App)
+                     )
+                 );
+                 console.log("Unified restaurant app rendered successfully");
+             } catch (error) {
+                 console.error("Error rendering unified restaurant app:", error);
+             }
+         };
 
         console.log("Unified restaurant app components defined");
     </script>
