@@ -118,8 +118,10 @@ function ManagementDashboard() {
         return 1.0;
     };
 
-    const loadDashboardData = async () => {
-        if (selectedPeriod === 'custom' && !customDate) {
+    const loadDashboardData = async (customDateOverride = null) => {
+        const effectiveCustomDate = customDateOverride ?? customDate;
+
+        if (selectedPeriod === 'custom' && !effectiveCustomDate) {
             return;
         }
 
@@ -138,8 +140,8 @@ function ManagementDashboard() {
             let dateParam = null;
             const formatISO = (d) => d.toISOString().split('T')[0];
 
-            if (selectedPeriod === 'custom' && customDate) {
-                dateParam = formatISO(new Date(customDate));
+            if (selectedPeriod === 'custom' && effectiveCustomDate) {
+                dateParam = formatISO(new Date(effectiveCustomDate));
             } else if (selectedPeriod === 'today') {
                 dateParam = formatISO(new Date());
             } else if (selectedPeriod === 'yesterday') {
@@ -198,8 +200,8 @@ function ManagementDashboard() {
                         }
 
                         setDashboardData(parsedData);
-                        if (selectedPeriod === 'custom' && customDate) {
-                            setLastLoadedCustomDate(customDate);
+                        if (selectedPeriod === 'custom' && effectiveCustomDate) {
+                            setLastLoadedCustomDate(effectiveCustomDate);
                         }
                         generateAlerts(parsedData);
 
@@ -784,17 +786,17 @@ function ManagementDashboard() {
         cardLoading.inventory
     );
 
-    const handleCustomDateBlur = (event) => {
-        if (selectedPeriod !== 'custom') return;
-
+    const handleCustomDateChange = (event) => {
         const value = event.target.value;
+        setCustomDate(value);
+
+        if (selectedPeriod !== 'custom') return;
         if (!value) return;
         if (isDashboardBusy()) return;
         if (value === lastLoadedCustomDate) return;
 
-        // Use the event value to ensure we load the exact date just chosen
-        setCustomDate(value);
-        loadDashboardData();
+        // Trigger the load immediately when the picker commits a new date
+        loadDashboardData(value);
     };
 
     return (
@@ -830,8 +832,7 @@ function ManagementDashboard() {
                             <input
                                 type="date"
                                 value={customDate}
-                                onChange={e => setCustomDate(e.target.value)}
-                                onBlur={handleCustomDateBlur}
+                                onChange={handleCustomDateChange}
                                 className="px-3 py-2 border rounded focus:ring-2 focus:ring-olive-500"
                             />
                         )}
