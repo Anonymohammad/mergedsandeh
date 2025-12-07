@@ -790,7 +790,7 @@ function deleteExistingEntries(dateString) {
       'SnapshotLog'
     ];
 
-    const sheetModes = MIGRATION_CONFIG.dualWriteMode ? ['namespaced', 'base'] : ['namespaced'];
+    const sheetModes = (MIGRATION_CONFIG.dualWriteMode && DATA_NAMESPACE) ? ['namespaced', 'base'] : ['namespaced'];
 
     const getSheetByMode = (sheetName, mode) => {
       return mode === 'base' ? ss.getSheetByName(sheetName) : getSheetWithNamespace(sheetName, ss);
@@ -889,6 +889,9 @@ function saveDailyEntry(entryData) {
 
     const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
 
+    const hasNamespace = !!DATA_NAMESPACE;
+    const legacySaveEnabled = MIGRATION_CONFIG.dualWriteMode && hasNamespace;
+
     if (entryData.isUpdate) {
       if (!entryData.managementPin || !validateManagementPin(entryData.managementPin)) {
         return JSON.stringify({
@@ -919,7 +922,7 @@ function saveDailyEntry(entryData) {
       }
     }
 
-    if (MIGRATION_CONFIG.dualWriteMode) {
+    if (legacySaveEnabled) {
       try {
         const oldSaveResult = saveDailyEntryToOldTables(entryData);
         logMigrationActivity('old_tables_save', {
@@ -1424,19 +1427,28 @@ function mapSnapshotLogToFormFormat(snapshotEntries) {
 }
 
 function generateReportFromOldTables(targetDateString) {
-  const shawarmaData = getSheetData('DailyShawarmaStack');
-  const salesData = getSheetData('DailySales');
-  const rawProteinsData = getSheetData('DailyRawProteins');
-  const marinatedProteinsData = getSheetData('DailyMarinatedProteins');
-  const breadData = getSheetData('DailyBreadTracking');
-  const highCostData = getSheetData('DailyHighCostItems');
+  const dataMode = (MIGRATION_CONFIG.dualWriteMode && DATA_NAMESPACE) ? 'base' : 'namespaced';
+  const shawarmaData = getSheetDataByMode('DailyShawarmaStack', dataMode);
+  const salesData = getSheetDataByMode('DailySales', dataMode);
+  const salesBreakdownData = getSheetDataByMode('DailySalesBreakdown', dataMode);
+  const rawProteinsData = getSheetDataByMode('DailyRawProteins', dataMode);
+  const marinatedProteinsData = getSheetDataByMode('DailyMarinatedProteins', dataMode);
+  const breadData = getSheetDataByMode('DailyBreadTracking', dataMode);
+  const highCostData = getSheetDataByMode('DailyHighCostItems', dataMode);
 
   const todayShawarma = shawarmaData.find(row => row.date && new Date(row.date).toDateString() === targetDateString);
   const todaySales = salesData.find(row => row.sales_date && new Date(row.sales_date).toDateString() === targetDateString);
 
   let pettyCashEntries = [];
+  let todayBreakdown = null;
   if (todaySales) {
-    pettyCashEntries = getPettyCashDetails(todaySales.id);
+    todayBreakdown = salesBreakdownData.find(row => {
+      const matchesDate = row.sales_date && new Date(row.sales_date).toDateString() === targetDateString;
+      const matchesId = row.daily_sales_id && row.daily_sales_id === todaySales.id;
+      return matchesDate || matchesId;
+    }) || null;
+
+    pettyCashEntries = getPettyCashDetails(todaySales.id, { mode: dataMode });
     todaySales.other_food_revenue = (parseFloat(todaySales.total_revenue) || 0) - (parseFloat(todaySales.shawarma_revenue) || 0);
     todaySales.petty_cash_total = calculatePettyCashTotal(pettyCashEntries);
   }
@@ -1448,7 +1460,7 @@ function generateReportFromOldTables(targetDateString) {
 
   return {
     date: targetDateString,
-    dataFound: !!(todayShawarma || todaySales || rawProteins || marinatedProteins || bread || highCostItems),
+    dataFound: !!(todayShawarma || todaySales || rawProteins || marinatedProteins || bread || highCostItems || todayBreakdown),
     shawarma: todayShawarma || null,
     sales: todaySales || null,
     rawProteins: rawProteins,
@@ -1456,6 +1468,7 @@ function generateReportFromOldTables(targetDateString) {
     bread: bread,
     highCostItems: highCostItems,
     pettyCashEntries: pettyCashEntries,
+    salesBreakdown: todayBreakdown,
     notes: ''
   };
 }
@@ -1965,6 +1978,26 @@ function getSheetData(sheetName) {
   });
 }
 
+function getSheetDataByMode(sheetName, mode) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = mode === 'base' ? ss.getSheetByName(sheetName) : getSheetWithNamespace(sheetName, ss);
+
+  if (!sheet || sheet.getLastRow() <= 1) {
+    return [];
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+
+  return data.slice(1).map(row => {
+    const item = {};
+    headers.forEach((header, index) => {
+      item[header] = row[index];
+    });
+    return item;
+  });
+}
+
 // Save Raw Proteins Data (EXACT from Employee Code.gs)
 function saveRawProteinsData(entryData, entryDate, employeeId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -2196,13 +2229,14 @@ function savePettyCashDetails(entries, dailySalesId, employeeId) {
   return total;
 }
 
-function getPettyCashDetails(dailySalesId) {
+function getPettyCashDetails(dailySalesId, options = {}) {
   try {
     const entries = [];
     if (!dailySalesId) {
       return entries;
     }
-    const data = Array.isArray(getSheetData('PettyCashDetail')) ? getSheetData('PettyCashDetail') : [];
+    const mode = options.mode || ((MIGRATION_CONFIG.dualWriteMode && DATA_NAMESPACE) ? 'base' : 'namespaced');
+    const data = Array.isArray(getSheetDataByMode('PettyCashDetail', mode)) ? getSheetDataByMode('PettyCashDetail', mode) : [];
     for (let i = 0; i < data.length; i++) {
       const row = data[i];
       if (row && row.daily_sales_id === dailySalesId) {
