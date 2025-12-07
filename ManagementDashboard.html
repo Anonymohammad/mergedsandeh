@@ -119,7 +119,9 @@ function ManagementDashboard() {
     };
 
     const loadDashboardData = async (customDateOverride = null) => {
-        const effectiveCustomDate = customDateOverride ?? customDate;
+        const effectiveCustomDate = customDateOverride !== null && customDateOverride !== undefined
+            ? customDateOverride
+            : customDate;
 
         if (selectedPeriod === 'custom' && !effectiveCustomDate) {
             return;
