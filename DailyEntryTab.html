@@ -386,12 +386,15 @@ function DailyEntryTab() {
         sales: {
             total_revenue: '',
             shawarma_revenue: '',
-            cash_sales: '',
-            card_sales: '',
-            delivery_aggregator_1: '',
-            delivery_aggregator_2: '',
             other_food_revenue: '',
             petty_cash_total: ''
+        },
+
+        paymentBreakdown: {
+            cash_sales: '',
+            card_sales: '',
+            delivery_aggregators: [],
+            aggregator_details: ''
         },
         
         // Notes
@@ -399,6 +402,13 @@ function DailyEntryTab() {
     });
     
     const [loading, setLoading] = React.useState(false);
+    const [aggregatorOptions, setAggregatorOptions] = React.useState([]);
+    const [paymentBreakdown, setPaymentBreakdown] = React.useState({
+        cash_sales: '',
+        card_sales: '',
+        delivery_aggregators: [],
+        aggregator_details: ''
+    });
     const [calculatedMetrics, setCalculatedMetrics] = React.useState(null);
     const [selectedDate, setSelectedDate] = React.useState(new Date().toISOString().split('T')[0]);
     const [existingEntry, setExistingEntry] = React.useState(null);
@@ -437,8 +447,104 @@ function DailyEntryTab() {
         });
     };
 
+    const getAggregatorLabel = (index) => {
+        const fallbackKey = index === 0 ? 'deliveryAggregator1' : 'deliveryAggregator2';
+        return (aggregatorOptions[index] && aggregatorOptions[index].name) ? aggregatorOptions[index].name : t(fallbackKey);
+    };
+
+    const updateAggregatorAmount = (id, value) => {
+        const normalized = normalizeNumberInput(value);
+        setPaymentBreakdown(prev => ({
+            ...prev,
+            delivery_aggregators: (prev.delivery_aggregators || []).map(item =>
+                item.id === id ? { ...item, amount: normalized } : item
+            )
+        }));
+    };
+
+    const buildEmptyPaymentBreakdown = React.useCallback(() => ({
+        cash_sales: '',
+        card_sales: '',
+        delivery_aggregators: (aggregatorOptions || []).map(item => ({ ...item, amount: '' })),
+        aggregator_details: ''
+    }), [aggregatorOptions]);
+
+    const clearEntryValues = React.useCallback(() => {
+        setFormData(prev => ({
+            ...prev,
+            shawarmaStack: { starting_weight: '', remaining_weight: '', shaving_weight: '', staff_meals_weight: '', orders_weight: '' },
+            rawProteins: {
+                frozen_chicken_breast_opening: '', frozen_chicken_breast_received: '', frozen_chicken_breast_expired: '', frozen_chicken_breast_remaining: '',
+                chicken_shawarma_opening: '', chicken_shawarma_received: '', chicken_shawarma_expired: '', chicken_shawarma_remaining: '',
+                steak_opening: '', steak_received: '', steak_expired: '', steak_remaining: ''
+            },
+            marinatedProteins: {
+                fahita_chicken_opening: '', fahita_chicken_received: '', fahita_chicken_expired: '', fahita_chicken_remaining: '',
+                chicken_sub_opening: '', chicken_sub_received: '', chicken_sub_expired: '', chicken_sub_remaining: '',
+                spicy_strips_opening: '', spicy_strips_received: '', spicy_strips_expired: '', spicy_strips_remaining: '',
+                original_strips_opening: '', original_strips_received: '', original_strips_expired: '', original_strips_remaining: '',
+                marinated_steak_opening: '', marinated_steak_received: '', marinated_steak_expired: '', marinated_steak_remaining: ''
+            },
+            bread: {
+                saj_bread_opening: '', saj_bread_received: '', saj_bread_expired: '', saj_bread_remaining: '',
+                pita_bread_opening: '', pita_bread_received: '', pita_bread_expired: '', pita_bread_remaining: '',
+                bread_rolls_opening: '', bread_rolls_received: '', bread_rolls_expired: '', bread_rolls_remaining: ''
+            },
+            highCostItems: {
+                cream_opening: '', cream_received: '', cream_expired: '', cream_remaining: '',
+                mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
+            },
+            sales: {
+                total_revenue: '', shawarma_revenue: '', other_food_revenue: '', petty_cash_total: ''
+            }
+        }));
+        setPaymentBreakdown(buildEmptyPaymentBreakdown());
+        setPettyCashEntries([]);
+    }, [buildEmptyPaymentBreakdown]);
+
     React.useEffect(() => {
         validateTranslations();
+    }, []);
+
+    React.useEffect(() => {
+        const applyAggregators = (list) => {
+            const active = (list || []).filter(item => item.active !== false);
+            setAggregatorOptions(active);
+            setPaymentBreakdown(prev => {
+                const existing = prev.delivery_aggregators || [];
+                const mapped = active.map(option => {
+                    const matched = existing.find(item => item.id === option.id || item.name === option.name);
+                    return { ...option, amount: matched ? matched.amount || '' : '' };
+                });
+                const hasExistingAmounts = mapped.some(item => item.amount && String(item.amount).trim() !== '');
+
+                return {
+                    ...prev,
+                    delivery_aggregators: mapped.length ? mapped : active.map(item => ({ ...item, amount: '' })),
+                    aggregator_details: hasExistingAmounts ? (prev.aggregator_details || '') : ''
+                };
+            });
+        };
+
+        google.script.run
+            .withSuccessHandler(result => {
+                try {
+                    const parsed = Array.isArray(result)
+                        ? result
+                        : (typeof result === 'string' && result.trim())
+                            ? JSON.parse(result)
+                            : [];
+                    applyAggregators(parsed);
+                } catch (error) {
+                    console.error('Failed to parse aggregator settings', error);
+                    applyAggregators([]);
+                }
+            })
+            .withFailureHandler(err => {
+                console.error('Failed to load aggregators', err);
+                applyAggregators([]);
+            })
+            .getAggregatorSettings(false);
     }, []);
 
     const INVENTORY_CONFIG = {
@@ -583,6 +689,7 @@ function DailyEntryTab() {
                         setDuplicateWarning(true);
                         setFieldsLocked(true);
                         setShowLoadExistingPin(true);
+                        clearEntryValues();
                     } else {
                         resetFormToClean();
                     }
@@ -907,8 +1014,16 @@ function DailyEntryTab() {
                 },
                 sales: {
                     ...formData.sales,
+                    cash_sales: paymentBreakdown.cash_sales,
+                    card_sales: paymentBreakdown.card_sales,
+                    delivery_aggregator_1: calculateDeliveryTotal(),
+                    delivery_aggregator_2: 0,
                     other_food_revenue: calculateOtherFoodRevenue(),
                     petty_cash_total: calculatePettyCashTotal()
+                },
+                paymentBreakdown: {
+                    ...paymentBreakdown,
+                    delivery_aggregators: paymentBreakdown.delivery_aggregators || []
                 },
                 pettyCashEntries: pettyCashEntries,
                 inventory: inventory,
@@ -945,48 +1060,7 @@ function DailyEntryTab() {
     };
     
     const resetForm = () => {
-        setFormData({
-            shawarmaStack: {
-                starting_weight: '', remaining_weight: '', shaving_weight: '',
-                staff_meals_weight: '', orders_weight: ''
-            },
-            rawProteins: {
-                frozen_chicken_breast_opening: '', frozen_chicken_breast_received: '', 
-                frozen_chicken_breast_expired: '', frozen_chicken_breast_remaining: '',
-                chicken_shawarma_opening: '', chicken_shawarma_received: '', 
-                chicken_shawarma_expired: '', chicken_shawarma_remaining: '',
-                steak_opening: '', steak_received: '', steak_expired: '', steak_remaining: ''
-            },
-            marinatedProteins: {
-                fahita_chicken_opening: '', fahita_chicken_received: '', fahita_chicken_expired: '', fahita_chicken_remaining: '',
-                chicken_sub_opening: '', chicken_sub_received: '', chicken_sub_expired: '', chicken_sub_remaining: '',
-                spicy_strips_opening: '', spicy_strips_received: '', spicy_strips_expired: '', spicy_strips_remaining: '',
-                original_strips_opening: '', original_strips_received: '', original_strips_expired: '', original_strips_remaining: '',
-    // ADD THIS LINE:
-    marinated_steak_opening: '', marinated_steak_received: '', marinated_steak_expired: '', marinated_steak_remaining: ''
-            },
-            bread: {
-                saj_bread_opening: '', saj_bread_received: '', saj_bread_expired: '', saj_bread_remaining: '',
-                pita_bread_opening: '', pita_bread_received: '', pita_bread_expired: '', pita_bread_remaining: '',
-                bread_rolls_opening: '', bread_rolls_received: '', bread_rolls_expired: '', bread_rolls_remaining: ''
-            },
-            highCostItems: {
-                cream_opening: '', cream_received: '', cream_expired: '', cream_remaining: '',
-                mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
-            },
-            sales: {
-                total_revenue: '',
-                shawarma_revenue: '',
-                cash_sales: '',
-                card_sales: '',
-                delivery_aggregator_1: '',
-                delivery_aggregator_2: '',
-                other_food_revenue: '',
-                petty_cash_total: ''
-            },
-            notes: ''
-        });
-        setPettyCashEntries([]);
+        clearEntryValues();
         setIsUpdateMode(false);
     };
     
@@ -1040,12 +1114,41 @@ function DailyEntryTab() {
                                     sales: {
                                         total_revenue: data.sales ? String(data.sales.total_revenue || '') : '',
                                         shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : '',
-                                        cash_sales: data.sales ? String(data.sales.cash_sales || '') : '',
-                                        card_sales: data.sales ? String(data.sales.card_sales || '') : '',
-                                        delivery_aggregator_1: data.sales ? String(data.sales.delivery_aggregator_1 || '') : '',
-                                        delivery_aggregator_2: data.sales ? String(data.sales.delivery_aggregator_2 || '') : '',
                                         other_food_revenue: data.sales ? String(data.sales.other_food_revenue || '') : '',
                                         petty_cash_total: data.sales ? String(data.sales.petty_cash_total || '') : ''
+                                    },
+                                    paymentBreakdown: {
+                                        cash_sales: data.salesBreakdown ? String(data.salesBreakdown.cash_sales || '') : (data.sales ? String(data.sales.cash_sales || '') : ''),
+                                        card_sales: data.salesBreakdown ? String(data.salesBreakdown.card_sales || '') : (data.sales ? String(data.sales.card_sales || '') : ''),
+                                        delivery_aggregators: (() => {
+                                            const parsed = (() => {
+                                                try {
+                                                    return data.salesBreakdown && data.salesBreakdown.aggregator_details ? JSON.parse(data.salesBreakdown.aggregator_details) : [];
+                                                } catch (error) {
+                                                    return [];
+                                                }
+                                            })();
+
+                                            const sourceAggregators = (aggregatorOptions && aggregatorOptions.length) ? aggregatorOptions : parsed;
+                                            let resolved = sourceAggregators.map(option => {
+                                                const matched = parsed.find(p => p.id === option.id || p.name === option.name);
+                                                return { ...option, amount: matched ? String(matched.amount || '') : '' };
+                                            });
+
+                                            if (!resolved.length && parsed.length) {
+                                                resolved = parsed.map(item => ({ ...item, amount: String(item.amount || '') }));
+                                            }
+
+                                            if (!resolved.length && data.sales && (data.sales.delivery_aggregator_1 || data.sales.delivery_sales)) {
+                                                const fallbackTotal = String(data.sales.delivery_aggregator_1 || data.sales.delivery_sales || '');
+                                                const baseOption = sourceAggregators[0] || { id: 'delivery_fallback', name: 'Delivery Aggregators' };
+                                                return [{ ...baseOption, amount: fallbackTotal }];
+                                            }
+
+                                            const emptyAggregators = buildEmptyPaymentBreakdown().delivery_aggregators;
+                                            return resolved.length ? resolved : emptyAggregators;
+                                        })(),
+                                        aggregator_details: data.salesBreakdown ? String(data.salesBreakdown.aggregator_details || '') : ''
                                     },
                                     rawProteins: {
                                         frozen_chicken_breast_opening: String(inventoryData.rawProteins.frozen_chicken_breast_opening || ''),
@@ -1145,59 +1248,21 @@ function DailyEntryTab() {
         }
     };
 
+
     const resetFormToClean = () => {
-        setFormData({
-            shawarmaStack: {
-                starting_weight: '', remaining_weight: '', shaving_weight: '',
-                staff_meals_weight: '', orders_weight: ''
-            },
-            rawProteins: {
-                frozen_chicken_breast_opening: '', frozen_chicken_breast_received: '', 
-                frozen_chicken_breast_expired: '', frozen_chicken_breast_remaining: '',
-                chicken_shawarma_opening: '', chicken_shawarma_received: '', 
-                chicken_shawarma_expired: '', chicken_shawarma_remaining: '',
-                steak_opening: '', steak_received: '', steak_expired: '', steak_remaining: ''
-            },
-            marinatedProteins: {
-                fahita_chicken_opening: '', fahita_chicken_received: '', fahita_chicken_expired: '', fahita_chicken_remaining: '',
-                chicken_sub_opening: '', chicken_sub_received: '', chicken_sub_expired: '', chicken_sub_remaining: '',
-                spicy_strips_opening: '', spicy_strips_received: '', spicy_strips_expired: '', spicy_strips_remaining: '',
-                original_strips_opening: '', original_strips_received: '', original_strips_expired: '', original_strips_remaining: '',
-    // ADD THIS LINE:
-    marinated_steak_opening: '', marinated_steak_received: '', marinated_steak_expired: '', marinated_steak_remaining: ''
-            },
-            bread: {
-                saj_bread_opening: '', saj_bread_received: '', saj_bread_expired: '', saj_bread_remaining: '',
-                pita_bread_opening: '', pita_bread_received: '', pita_bread_expired: '', pita_bread_remaining: '',
-                bread_rolls_opening: '', bread_rolls_received: '', bread_rolls_expired: '', bread_rolls_remaining: ''
-            },
-            highCostItems: {
-                cream_opening: '', cream_received: '', cream_expired: '', cream_remaining: '',
-                mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
-            },
-            sales: {
-                total_revenue: '',
-                shawarma_revenue: '',
-                cash_sales: '',
-                card_sales: '',
-                delivery_aggregator_1: '',
-                delivery_aggregator_2: '',
-                other_food_revenue: '',
-                petty_cash_total: ''
-            },
-            notes: ''
-        });
+        clearEntryValues();
 
         setDuplicateWarning(false);
         setIsUpdateMode(false);
-        setPettyCashEntries([]);
         setFieldsLocked(false);
+        setShowPinInput(false);
+        setManagementPin('');
         setShowLoadExistingPin(false);
         setLoadExistingPin('');
-        setLoadingExistingData(false);
         setPinError(false);
         setPinAttempted(false);
     };
+
     
     const cancelLoadExisting = () => {
         setShowLoadExistingPin(false);
@@ -1218,6 +1283,10 @@ function DailyEntryTab() {
 
     const calculatePettyCashTotal = () => {
         return pettyCashEntries.reduce((sum, entry) => sum + (parseFloat(entry.amount) || 0), 0);
+    };
+
+    const calculateDeliveryTotal = () => {
+        return (paymentBreakdown.delivery_aggregators || []).reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
     };
 
     const handleAddPettyCashEntry = () => {
@@ -1937,51 +2006,50 @@ function DailyEntryTab() {
                             }),
                             React.createElement('p', { className: 'text-xs text-gray-500 mt-1' }, 'Used for shawarma profitability calculations')
                         ),
-                        // Cash sales
-                        React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('cashSales')),
-                            React.createElement('input', {
-                                type: 'number',
-                                step: '0.01',
-                                value: formData.sales.cash_sales,
-                                onChange: e => handleInputChange('sales', 'cash_sales', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
-                                disabled: fieldsLocked
-                            })
+                        // Cash and card sales
+                        ['cash_sales', 'card_sales'].map(key => (
+                            React.createElement('div', { key },
+                                React.createElement('label', { className: 'block text-sm font-medium mb-1' },
+                                    key === 'cash_sales' ? t('cashSales') : t('cardSales')
+                                ),
+                                React.createElement('input', {
+                                    type: 'number',
+                                    step: '0.01',
+                                    value: paymentBreakdown[key],
+                                    onChange: e => setPaymentBreakdown(prev => ({ ...prev, [key]: normalizeNumberInput(e.target.value) })),
+                                    className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                    disabled: fieldsLocked
+                                })
+                            )
+                        )),
+                        React.createElement('div', { className: 'md:col-span-2' },
+                            React.createElement('label', { className: 'block text-sm font-medium mb-2' }, 'Delivery Aggregators'),
+                            React.createElement('div', { className: 'space-y-2' },
+                                (paymentBreakdown.delivery_aggregators || []).map(item => (
+                                    React.createElement('div', { key: item.id, className: 'border rounded p-3 bg-white shadow-sm flex items-center justify-between' },
+                                        React.createElement('p', { className: 'text-sm font-medium text-gray-800 mb-1 md:mb-0' }, item.name || 'Aggregator'),
+                                        React.createElement('div', { className: 'w-32' },
+                                            React.createElement('input', {
+                                                type: 'number',
+                                                step: '0.01',
+                                                value: item.amount,
+                                                onChange: e => updateAggregatorAmount(item.id, e.target.value),
+                                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                                disabled: fieldsLocked
+                                            })
+                                        )
+                                    )
+                                ))
+                            )
                         ),
-                        // Card sales
-                        React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('cardSales')),
-                            React.createElement('input', {
-                                type: 'number',
-                                step: '0.01',
-                                value: formData.sales.card_sales,
-                                onChange: e => handleInputChange('sales', 'card_sales', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
-                                disabled: fieldsLocked
-                            })
-                        ),
-                        // Delivery platform 1
-                        React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('deliveryAggregator1')),
-                            React.createElement('input', {
-                                type: 'number',
-                                step: '0.01',
-                                value: formData.sales.delivery_aggregator_1,
-                                onChange: e => handleInputChange('sales', 'delivery_aggregator_1', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
-                                disabled: fieldsLocked
-                            })
-                        ),
-                        // Delivery platform 2
-                        React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('deliveryAggregator2')),
-                            React.createElement('input', {
-                                type: 'number',
-                                step: '0.01',
-                                value: formData.sales.delivery_aggregator_2,
-                                onChange: e => handleInputChange('sales', 'delivery_aggregator_2', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                        React.createElement('div', { className: 'md:col-span-2' },
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Aggregator Notes'),
+                            React.createElement('textarea', {
+                                value: paymentBreakdown.aggregator_details,
+                                onChange: e => setPaymentBreakdown(prev => ({ ...prev, aggregator_details: e.target.value })),
+                                className: 'w-full p-3 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                rows: '2',
+                                placeholder: 'e.g., Talabat 1200, Snoonu 900',
                                 disabled: fieldsLocked
                             })
                         ),
