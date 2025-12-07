@@ -151,6 +151,33 @@ function ManagementDashboard() {
                     try {
                         const parsedData = JSON.parse(data);
 
+                        const safeNumber = (value, defaultValue = 0) => {
+                            const num = Number(value);
+                            return Number.isFinite(num) ? num : defaultValue;
+                        };
+
+                        if (parsedData.sales) {
+                            parsedData.sales = {
+                                ...parsedData.sales,
+                                total_revenue: safeNumber(parsedData.sales.total_revenue, 0),
+                                shawarma_revenue: safeNumber(parsedData.sales.shawarma_revenue, 0),
+                                other_food_revenue: safeNumber(parsedData.sales.other_food_revenue, 0),
+                                petty_cash_total: safeNumber(parsedData.sales.petty_cash_total, 0),
+                                food_cost_percentage: safeNumber(parsedData.sales.food_cost_percentage, 0)
+                            };
+                        }
+
+                        if (parsedData.enhanced_analytics && parsedData.enhanced_analytics.sales && parsedData.enhanced_analytics.sales.performance_metrics) {
+                            parsedData.enhanced_analytics.sales.performance_metrics = {
+                                ...parsedData.enhanced_analytics.sales.performance_metrics,
+                                food_cost_percentage: safeNumber(parsedData.enhanced_analytics.sales.performance_metrics.food_cost_percentage, 0),
+                                revenue_quality_score: safeNumber(parsedData.enhanced_analytics.sales.performance_metrics.revenue_quality_score, 0),
+                                petty_cash_percentage: safeNumber(parsedData.enhanced_analytics.sales.performance_metrics.petty_cash_percentage, 0),
+                                payment_method_diversity: safeNumber(parsedData.enhanced_analytics.sales.performance_metrics.payment_method_diversity, 0),
+                                shawarma_percentage: safeNumber(parsedData.enhanced_analytics.sales.performance_metrics.shawarma_percentage, 0)
+                            };
+                        }
+
                         if (parsedData.shawarma) {
                             parsedData.shawarma = computeShawarmaMetrics(parsedData.shawarma);
                         }
