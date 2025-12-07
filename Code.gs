@@ -1341,10 +1341,11 @@ function generateDailyReport(date) {
 
 function generateReportFromNewTables(targetDateString) {
   try {
-    const shawarmaData = Array.isArray(getSheetData('DailyShawarmaStack')) ? getSheetData('DailyShawarmaStack') : [];
-    const salesData = Array.isArray(getSheetData('DailySales')) ? getSheetData('DailySales') : [];
-    const salesBreakdownData = Array.isArray(getSheetData('DailySalesBreakdown')) ? getSheetData('DailySalesBreakdown') : [];
-    const snapshotData = Array.isArray(getSheetData('SnapshotLog')) ? getSheetData('SnapshotLog') : [];
+    const dataMode = (MIGRATION_CONFIG.dualWriteMode && DATA_NAMESPACE) ? 'base' : 'namespaced';
+    const shawarmaData = Array.isArray(getSheetDataByMode('DailyShawarmaStack', dataMode)) ? getSheetDataByMode('DailyShawarmaStack', dataMode) : [];
+    const salesData = Array.isArray(getSheetDataByMode('DailySales', dataMode)) ? getSheetDataByMode('DailySales', dataMode) : [];
+    const salesBreakdownData = Array.isArray(getSheetDataByMode('DailySalesBreakdown', dataMode)) ? getSheetDataByMode('DailySalesBreakdown', dataMode) : [];
+    const snapshotData = Array.isArray(getSheetDataByMode('SnapshotLog', dataMode)) ? getSheetDataByMode('SnapshotLog', dataMode) : [];
 
     const todayShawarma = shawarmaData.find(row => row.date && new Date(row.date).toDateString() === targetDateString);
     const todaySales = salesData.find(row => row.sales_date && new Date(row.sales_date).toDateString() === targetDateString);
