@@ -2195,6 +2195,10 @@ function getAllLegacyKeyMappings() {
   return map;
 }
 
+function getLegacyKeyMappings() {
+  return getAllLegacyKeyMappings();
+}
+
 function getItemsByCategory(category) {
   const items = getSheetData('Item');
   return items.filter(function(it) {
@@ -2425,6 +2429,11 @@ function migrateSingleDate(dateString, dryRun = false) {
   }
 }
 
+function migrateInventoryEntry(dateString, options = {}) {
+  const dryRun = options.dryRun === true;
+  return migrateSingleDate(dateString, dryRun);
+}
+
 function convertOldDataToNewFormat(oldData) {
   const oldSales = oldData.sales || {};
   const convertedData = {
@@ -2520,6 +2529,10 @@ function validateMigratedDate(dateString) {
   } catch (error) {
     return { isValid: false, errors: [`Validation error: ${error.message}`], date: dateString };
   }
+}
+
+function validateMigration(dateString) {
+  return validateMigratedDate(dateString);
 }
 
 function validateAllMigratedData() {
@@ -2923,7 +2936,7 @@ function cleanupTestData() {
 
 function testLegacyKeyMapping() {
   try {
-    const mappings = getAllLegacyKeyMappings();
+    const mappings = getLegacyKeyMappings();
     const expectedKeys = ['frozen_chicken_breast','chicken_shawarma','steak','fahita_chicken','chicken_sub','spicy_strips','original_strips','marinated_steak','saj_bread','pita_bread','bread_rolls','cream','mayo'];
     const missing = expectedKeys.filter(k => !mappings[k]);
     if (missing.length > 0) return { success: false, message: `Missing legacy key mappings: ${missing.join(', ')}`, details: { missingKeys: missing } };
