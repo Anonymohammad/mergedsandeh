@@ -200,6 +200,22 @@ const MIGRATION_CONFIG = {
   validateMigration: true
 };
 
+const LEGACY_ITEMS = [
+  { name: 'Frozen Chicken Breast', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'frozen_chicken_breast', is_prepared: false },
+  { name: 'Chicken Shawarma', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'chicken_shawarma', is_prepared: false },
+  { name: 'Steak', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'steak', is_prepared: false },
+  { name: 'Fahita Chicken', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'fahita_chicken', is_prepared: true },
+  { name: 'Chicken Sub', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'chicken_sub', is_prepared: true },
+  { name: 'Spicy Strips', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'spicy_strips', is_prepared: true },
+  { name: 'Original Strips', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'original_strips', is_prepared: true },
+  { name: 'Marinated Steak', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'marinated_steak', is_prepared: true },
+  { name: 'Saj Bread', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'saj_bread', is_prepared: false },
+  { name: 'Pita Bread', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'pita_bread', is_prepared: false },
+  { name: 'Bread Rolls', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'bread_rolls', is_prepared: false },
+  { name: 'Cream', category: 'High Cost Items', unit: 'kg', frequency: 'daily', legacy_key: 'cream', is_prepared: false },
+  { name: 'Mayo', category: 'High Cost Items', unit: 'kg', frequency: 'daily', legacy_key: 'mayo', is_prepared: false }
+];
+
 function logMigrationActivity(activity, details, status = 'info') {
   if (!MIGRATION_CONFIG.logMigration) return;
 
@@ -338,6 +354,7 @@ function initializeDatabase() {
   }
 
   initializeItemsTable();
+  initializeLegacyMappings();
 
   return isNewDatabase;
 }
@@ -476,23 +493,7 @@ function initializeItemsTable() {
 
     if (isSheetEmpty(sheet)) {
       const now = new Date();
-      const items = [
-        { name: 'Frozen Chicken Breast', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'frozen_chicken_breast', is_prepared: false },
-        { name: 'Chicken Shawarma', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'chicken_shawarma', is_prepared: false },
-        { name: 'Steak', category: 'Raw Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'steak', is_prepared: false },
-        { name: 'Fahita Chicken', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'fahita_chicken', is_prepared: true },
-        { name: 'Chicken Sub', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'chicken_sub', is_prepared: true },
-        { name: 'Spicy Strips', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'spicy_strips', is_prepared: true },
-        { name: 'Original Strips', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'original_strips', is_prepared: true },
-        { name: 'Marinated Steak', category: 'Marinated Proteins', unit: 'kg', frequency: 'daily', legacy_key: 'marinated_steak', is_prepared: true },
-        { name: 'Saj Bread', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'saj_bread', is_prepared: false },
-        { name: 'Pita Bread', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'pita_bread', is_prepared: false },
-        { name: 'Bread Rolls', category: 'Bread', unit: 'pieces', frequency: 'daily', legacy_key: 'bread_rolls', is_prepared: false },
-        { name: 'Cream', category: 'High Cost Items', unit: 'kg', frequency: 'daily', legacy_key: 'cream', is_prepared: false },
-        { name: 'Mayo', category: 'High Cost Items', unit: 'kg', frequency: 'daily', legacy_key: 'mayo', is_prepared: false }
-      ];
-
-      items.forEach(function(it) {
+      LEGACY_ITEMS.forEach(function(it) {
         const row = [
           Utilities.getUuid(),
           it.name,
@@ -514,6 +515,77 @@ function initializeItemsTable() {
     }
   } catch (error) {
     handleInitializationError('Item', error);
+  }
+}
+
+function initializeLegacyMappings() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Item');
+
+    if (!sheet) {
+      throw new Error('Item sheet not found');
+    }
+
+    const requiredHeaders = REQUIRED_SHEETS.Item.requiredHeaders;
+    const headerIndices = requiredHeaders.reduce((acc, header, index) => {
+      acc[header] = index;
+      return acc;
+    }, {});
+
+    const data = sheet.getDataRange().getValues();
+    const existingByLegacy = new Map();
+    const existingByName = new Map();
+
+    for (let i = 1; i < data.length; i++) {
+      const row = data[i];
+      const legacyKey = row[headerIndices.legacy_key];
+      const name = row[headerIndices.name];
+
+      if (legacyKey) {
+        existingByLegacy.set(String(legacyKey), i);
+      }
+      if (name) {
+        existingByName.set(String(name).toLowerCase(), i);
+      }
+    }
+
+    const now = new Date();
+
+    LEGACY_ITEMS.forEach(item => {
+      const rowIndex = existingByLegacy.has(item.legacy_key)
+        ? existingByLegacy.get(item.legacy_key)
+        : existingByName.get(item.name.toLowerCase());
+
+      if (rowIndex === undefined) {
+        const row = new Array(requiredHeaders.length).fill('');
+        row[headerIndices.id] = Utilities.getUuid();
+        row[headerIndices.name] = item.name;
+        row[headerIndices.category] = item.category;
+        row[headerIndices.unit] = item.unit;
+        row[headerIndices.frequency] = item.frequency;
+        row[headerIndices.is_prepared] = item.is_prepared;
+        row[headerIndices.cost_per_unit] = 0;
+        row[headerIndices.min_stock] = 0;
+        row[headerIndices.max_stock] = 0;
+        row[headerIndices.storage_location] = '';
+        row[headerIndices.legacy_key] = item.legacy_key;
+        row[headerIndices.active] = true;
+        row[headerIndices.created_at] = now;
+        row[headerIndices.updated_at] = now;
+        appendRowSafe(sheet, row);
+      } else {
+        const legacyKeyCell = sheet.getRange(rowIndex + 1, headerIndices.legacy_key + 1);
+        if (!legacyKeyCell.getValue()) {
+          legacyKeyCell.setValue(item.legacy_key);
+          if (headerIndices.updated_at !== undefined) {
+            sheet.getRange(rowIndex + 1, headerIndices.updated_at + 1).setValue(new Date());
+          }
+        }
+      }
+    });
+  } catch (error) {
+    handleInitializationError('Item Legacy Mapping', error);
   }
 }
 
@@ -3476,6 +3548,10 @@ function getVarianceReport(date) {
     variance: variance,
     alerts: generateVarianceAlerts(variance)
   };
+}
+
+if (typeof global !== 'undefined') {
+  global.initializeLegacyMappings = initializeLegacyMappings;
 }
 
 
