@@ -18,9 +18,12 @@ function ManagementDashboard() {
     const [showDebugData, setShowDebugData] = React.useState(false);
 
     React.useEffect(() => {
-        if (selectedPeriod === 'custom' && !customDate) return;
+        // Only auto-load for non-custom periods. Custom dates should be fetched
+        // explicitly (e.g., via the Refresh button) after the user commits a date
+        // selection to avoid triggering requests while navigating the calendar.
+        if (selectedPeriod === 'custom') return;
         loadDashboardData();
-    }, [selectedPeriod, customDate]);
+    }, [selectedPeriod]);
 
     const getAcceptableRemainingRange = (stackWeightKg) => {
         return {
