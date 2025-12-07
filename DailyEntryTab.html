@@ -3,9 +3,6 @@
 const normalizeNumberInput = (value) => value.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
 
 function getCurrentEmployeeSession() {
-    // Return cached session if available
-    if (window.currentEmployeeSession) return window.currentEmployeeSession;
-
     // Allow management to override the active employee
     if (window.overrideEmployeeSession) {
         window.currentEmployeeSession = window.overrideEmployeeSession;
@@ -38,11 +35,11 @@ function getCurrentEmployeeSession() {
             employee_name: session.employeeName || 'Management',
             role: session.employeeRole || 'employee'
         };
-        return window.currentEmployeeSession;
+    } else {
+        // Default to management when no authenticated employee exists
+        window.currentEmployeeSession = { employee_id: 'management', employee_name: 'Management', role: 'management' };
     }
 
-    // Default to management when no authenticated employee exists
-    window.currentEmployeeSession = { employee_id: 'management', employee_name: 'Management', role: 'management' };
     return window.currentEmployeeSession;
 }
 
