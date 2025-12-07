@@ -779,7 +779,7 @@ function deleteExistingEntries(dateString) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const targetDate = new Date(dateString).toDateString();
-    
+
     const sheetsToClean = [
       'DailyShawarmaStack',
       'DailyRawProteins',
@@ -793,17 +793,17 @@ function deleteExistingEntries(dateString) {
     const deletedDailySalesIds = [];
 
     sheetsToClean.forEach(sheetName => {
-      const sheet = ss.getSheetByName(sheetName);
+      const sheet = getSheetWithNamespace(sheetName, ss);
       if (!sheet) return;
-      
+
       const data = sheet.getDataRange().getValues();
       const headers = data[0];
       const dateFieldName = sheetName === 'DailyShawarmaStack' || sheetName === 'SnapshotLog' ? 'date' :
                            sheetName === 'DailySales' ? 'sales_date' : 'count_date';
       const dateIndex = headers.indexOf(dateFieldName);
-      
+
       if (dateIndex === -1) return;
-      
+
       const rowsToDelete = [];
       for (let i = data.length - 1; i >= 1; i--) {
         if (data[i][dateIndex] && new Date(data[i][dateIndex]).toDateString() === targetDate) {
@@ -822,9 +822,33 @@ function deleteExistingEntries(dateString) {
       });
     });
 
+    const cleanupRelatedSheet = (sheetName, dateField, idField) => {
+      const sheet = getSheetWithNamespace(sheetName, ss);
+      if (!sheet || sheet.getLastRow() <= 1) return;
+
+      const data = sheet.getDataRange().getValues();
+      const headers = data[0];
+      const dateIndex = headers.indexOf(dateField);
+      const idIndex = headers.indexOf(idField);
+      const rowsToDelete = [];
+
+      for (let i = data.length - 1; i >= 1; i--) {
+        const matchesDate = dateIndex !== -1 && data[i][dateIndex] && new Date(data[i][dateIndex]).toDateString() === targetDate;
+        const matchesId = idIndex !== -1 && deletedDailySalesIds.indexOf(data[i][idIndex]) !== -1;
+        if (matchesDate || matchesId) {
+          rowsToDelete.push(i + 1);
+        }
+      }
+
+      rowsToDelete.forEach(rowIndex => sheet.deleteRow(rowIndex));
+    };
+
+    cleanupRelatedSheet('DailySalesBreakdown', 'sales_date', 'daily_sales_id');
+    cleanupRelatedSheet('DailyPettyCash', 'sales_date', 'daily_sales_id');
+
     if (deletedDailySalesIds.length > 0) {
-      const pettySheet = ss.getSheetByName('PettyCashDetail');
-      if (pettySheet) {
+      const pettySheet = getSheetWithNamespace('PettyCashDetail', ss);
+      if (pettySheet && pettySheet.getLastRow() > 1) {
         const pettyData = pettySheet.getDataRange().getValues();
         const pettyHeaders = pettyData[0];
         const dailyIdIndex = pettyHeaders.indexOf('daily_sales_id');
@@ -839,7 +863,7 @@ function deleteExistingEntries(dateString) {
         });
       }
     }
-    
+
   } catch (error) {
     Logger.log('Error deleting existing entries: ' + error.toString());
     throw new Error('Failed to delete existing entries: ' + error.message);
@@ -2042,58 +2066,50 @@ function saveHighCostItemsData(entryData, entryDate, employeeId) {
   highCostSheet.appendRow(row);
 }
 
-// Save Sales Data (EXACT from Employee Code.gs)
+// Save Sales Data with payment breakdown linkage
 function saveSalesData(entryData, entryDate, employeeId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const salesSheet = ss.getSheetByName('DailySales');
+  const salesSheet = getSheetWithNamespace('DailySales', ss);
   const salesData = entryData.sales || {};
   const paymentBreakdown = entryData.paymentBreakdown || {};
 
-  const deliveryAggregators = Array.isArray(paymentBreakdown.delivery_aggregators)
-    ? paymentBreakdown.delivery_aggregators
-    : [];
-  const deliveryTotal = deliveryAggregators.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-
   const totalRevenue = parseFloat(salesData.total_revenue) || 0;
   const shawarmaRevenue = parseFloat(salesData.shawarma_revenue) || 0;
-  const otherFoodRevenue = totalRevenue - shawarmaRevenue;
-  const cashSales = parseFloat(paymentBreakdown.cash_sales || salesData.cash_sales) || 0;
-  const cardSales = parseFloat(paymentBreakdown.card_sales || salesData.card_sales) || 0;
-  const aggregator1 = deliveryTotal || parseFloat(salesData.delivery_aggregator_1) || 0;
-  const aggregator2 = 0;
   const estimatedFoodCost = totalRevenue * 0.22;
   const foodCostPercentage = totalRevenue > 0 ? (estimatedFoodCost / totalRevenue) * 100 : 0;
   const totalOrders = 0;
-  const pettyCashTotal = parseFloat(salesData.petty_cash_total) || 0;
 
-  const id = Utilities.getUuid();
+  const salesId = Utilities.getUuid();
+
   const row = [
-    id, entryDate, totalRevenue, shawarmaRevenue, otherFoodRevenue,
-    cashSales, cardSales, aggregator1, aggregator2, estimatedFoodCost,
-    foodCostPercentage, totalOrders, pettyCashTotal, employeeId, new Date(), new Date()
+    salesId, entryDate, totalRevenue, shawarmaRevenue, estimatedFoodCost,
+    foodCostPercentage, totalOrders, employeeId, new Date(), new Date()
   ];
 
   salesSheet.appendRow(row);
-  saveSalesBreakdown(entryDate, id, paymentBreakdown, entryData.pettyCashEntries || []);
-  return id;
+
+  saveSalesBreakdown(entryData, entryDate, employeeId, salesId);
+
+  return salesId;
 }
 
-function saveSalesBreakdown(entryDate, salesId, paymentBreakdown, pettyCashEntries) {
+// Save payment method and cash expense breakdown
+function saveSalesBreakdown(entryData, entryDate, employeeId, salesId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const breakdownSheet = getSheetWithNamespace('DailySalesBreakdown', ss);
   if (!breakdownSheet) return;
 
-  const cashSales = parseFloat(paymentBreakdown.cash_sales) || 0;
-  const cardSales = parseFloat(paymentBreakdown.card_sales) || 0;
-  const deliveryAggregators = Array.isArray(paymentBreakdown.delivery_aggregators)
-    ? paymentBreakdown.delivery_aggregators
-    : [];
+  const breakdown = entryData.paymentBreakdown || {};
+
+  const cashSales = parseFloat(breakdown.cash_sales) || 0;
+  const cardSales = parseFloat(breakdown.card_sales) || 0;
+  const deliveryAggregators = Array.isArray(breakdown.delivery_aggregators) ? breakdown.delivery_aggregators : [];
   const deliverySales = deliveryAggregators.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
   const aggregatorDetails = JSON.stringify(deliveryAggregators);
-  const pettyCashTotal = Array.isArray(pettyCashEntries)
-    ? pettyCashEntries.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0)
-    : 0;
-  const expenseNotes = paymentBreakdown.aggregator_details || paymentBreakdown.expense_notes || '';
+  const pettyCashTotal = Array.isArray(entryData.pettyCashEntries)
+    ? entryData.pettyCashEntries.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0)
+    : parseFloat(breakdown.cash_expenses) || 0;
+  const expenseNotes = breakdown.expense_notes || '';
 
   const row = [
     Utilities.getUuid(), entryDate, salesId, cashSales, cardSales, deliverySales,
@@ -2101,6 +2117,33 @@ function saveSalesBreakdown(entryDate, salesId, paymentBreakdown, pettyCashEntri
   ];
 
   breakdownSheet.appendRow(row);
+
+  if (Array.isArray(entryData.pettyCashEntries)) {
+    saveDailyPettyCashEntries(entryData.pettyCashEntries, entryDate, salesId, employeeId);
+  }
+}
+
+function saveDailyPettyCashEntries(entries, entryDate, salesId, employeeId) {
+  const sheet = getSheetWithNamespace('DailyPettyCash');
+  if (!sheet) return;
+
+  entries
+    .filter(item => (parseFloat(item.amount) || 0) > 0)
+    .forEach(item => {
+      const row = [
+        Utilities.getUuid(),
+        entryDate,
+        salesId,
+        item.category || '',
+        item.description || '',
+        parseFloat(item.amount) || 0,
+        item.paid_by || 'Cash',
+        new Date(),
+        new Date()
+      ];
+
+      sheet.appendRow(row);
+    });
 }
 
 // Petty cash management functions
