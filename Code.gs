@@ -1308,10 +1308,16 @@ function generateReportFromNewTables(targetDateString) {
   try {
     const shawarmaData = Array.isArray(getSheetData('DailyShawarmaStack')) ? getSheetData('DailyShawarmaStack') : [];
     const salesData = Array.isArray(getSheetData('DailySales')) ? getSheetData('DailySales') : [];
+    const salesBreakdownData = Array.isArray(getSheetData('DailySalesBreakdown')) ? getSheetData('DailySalesBreakdown') : [];
     const snapshotData = Array.isArray(getSheetData('SnapshotLog')) ? getSheetData('SnapshotLog') : [];
 
     const todayShawarma = shawarmaData.find(row => row.date && new Date(row.date).toDateString() === targetDateString);
     const todaySales = salesData.find(row => row.sales_date && new Date(row.sales_date).toDateString() === targetDateString);
+
+    let todayBreakdown = null;
+    if (todaySales && todaySales.id && salesBreakdownData.length) {
+      todayBreakdown = salesBreakdownData.find(row => row.daily_sales_id === todaySales.id) || null;
+    }
 
     let pettyCashEntries = [];
     if (todaySales && todaySales.id) {
@@ -1334,6 +1340,7 @@ function generateReportFromNewTables(targetDateString) {
       dataFound: !!(todayShawarma || todaySales || todaySnapshot.length > 0),
       shawarma: todayShawarma || null,
       sales: todaySales || null,
+      salesBreakdown: todayBreakdown,
       inventory: inventoryData,
       pettyCashEntries: pettyCashEntries,
       notes: ''
@@ -1348,6 +1355,7 @@ function generateReportFromNewTables(targetDateString) {
       dataFound: false,
       shawarma: null,
       sales: null,
+      salesBreakdown: null,
       inventory: null,
       pettyCashEntries: [],
       notes: ''
@@ -2038,15 +2046,21 @@ function saveHighCostItemsData(entryData, entryDate, employeeId) {
 function saveSalesData(entryData, entryDate, employeeId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const salesSheet = ss.getSheetByName('DailySales');
-  const salesData = entryData.sales;
-  
+  const salesData = entryData.sales || {};
+  const paymentBreakdown = entryData.paymentBreakdown || {};
+
+  const deliveryAggregators = Array.isArray(paymentBreakdown.delivery_aggregators)
+    ? paymentBreakdown.delivery_aggregators
+    : [];
+  const deliveryTotal = deliveryAggregators.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+
   const totalRevenue = parseFloat(salesData.total_revenue) || 0;
   const shawarmaRevenue = parseFloat(salesData.shawarma_revenue) || 0;
   const otherFoodRevenue = totalRevenue - shawarmaRevenue;
-  const cashSales = parseFloat(salesData.cash_sales) || 0;
-  const cardSales = parseFloat(salesData.card_sales) || 0;
-  const aggregator1 = parseFloat(salesData.delivery_aggregator_1) || 0;
-  const aggregator2 = parseFloat(salesData.delivery_aggregator_2) || 0;
+  const cashSales = parseFloat(paymentBreakdown.cash_sales || salesData.cash_sales) || 0;
+  const cardSales = parseFloat(paymentBreakdown.card_sales || salesData.card_sales) || 0;
+  const aggregator1 = deliveryTotal || parseFloat(salesData.delivery_aggregator_1) || 0;
+  const aggregator2 = 0;
   const estimatedFoodCost = totalRevenue * 0.22;
   const foodCostPercentage = totalRevenue > 0 ? (estimatedFoodCost / totalRevenue) * 100 : 0;
   const totalOrders = 0;
@@ -2060,7 +2074,33 @@ function saveSalesData(entryData, entryDate, employeeId) {
   ];
 
   salesSheet.appendRow(row);
+  saveSalesBreakdown(entryDate, id, paymentBreakdown, entryData.pettyCashEntries || []);
   return id;
+}
+
+function saveSalesBreakdown(entryDate, salesId, paymentBreakdown, pettyCashEntries) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const breakdownSheet = getSheetWithNamespace('DailySalesBreakdown', ss);
+  if (!breakdownSheet) return;
+
+  const cashSales = parseFloat(paymentBreakdown.cash_sales) || 0;
+  const cardSales = parseFloat(paymentBreakdown.card_sales) || 0;
+  const deliveryAggregators = Array.isArray(paymentBreakdown.delivery_aggregators)
+    ? paymentBreakdown.delivery_aggregators
+    : [];
+  const deliverySales = deliveryAggregators.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+  const aggregatorDetails = JSON.stringify(deliveryAggregators);
+  const pettyCashTotal = Array.isArray(pettyCashEntries)
+    ? pettyCashEntries.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0)
+    : 0;
+  const expenseNotes = paymentBreakdown.aggregator_details || paymentBreakdown.expense_notes || '';
+
+  const row = [
+    Utilities.getUuid(), entryDate, salesId, cashSales, cardSales, deliverySales,
+    aggregatorDetails, pettyCashTotal, expenseNotes, new Date(), new Date()
+  ];
+
+  breakdownSheet.appendRow(row);
 }
 
 // Petty cash management functions

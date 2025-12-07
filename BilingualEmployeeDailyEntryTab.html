@@ -361,12 +361,14 @@ function BilingualEmployeeDailyEntryTab(props) {
         sales: {
             total_revenue: '',
             shawarma_revenue: '',
-            cash_sales: '',
-            card_sales: '',
-            delivery_aggregator_1: '',
-            delivery_aggregator_2: '',
             other_food_revenue: '',
             petty_cash_total: ''
+        },
+        paymentBreakdown: {
+            cash_sales: '',
+            card_sales: '',
+            delivery_aggregators: [],
+            aggregator_details: ''
         },
         notes: ''
     });
@@ -395,10 +397,26 @@ function BilingualEmployeeDailyEntryTab(props) {
     });
     const [editingEntryIndex, setEditingEntryIndex] = React.useState(-1);
     const [aggregatorOptions, setAggregatorOptions] = React.useState([]);
+    const [paymentBreakdown, setPaymentBreakdown] = React.useState({
+        cash_sales: '',
+        card_sales: '',
+        delivery_aggregators: [],
+        aggregator_details: ''
+    });
 
     const getAggregatorLabel = (index) => {
         const fallbackKey = index === 0 ? 'deliveryAggregator1' : 'deliveryAggregator2';
         return (aggregatorOptions[index] && aggregatorOptions[index].name) ? aggregatorOptions[index].name : t(fallbackKey);
+    };
+
+    const updateAggregatorAmount = (id, value) => {
+        const normalized = normalizeNumberInput(value);
+        setPaymentBreakdown(prev => ({
+            ...prev,
+            delivery_aggregators: (prev.delivery_aggregators || []).map(item =>
+                item.id === id ? { ...item, amount: normalized } : item
+            )
+        }));
     };
 
     const INVENTORY_CONFIG = {
@@ -452,6 +470,10 @@ function BilingualEmployeeDailyEntryTab(props) {
         const applyAggregators = (list) => {
             const active = (list || []).filter(item => item.active !== false);
             setAggregatorOptions(active);
+            setPaymentBreakdown(prev => ({
+                ...prev,
+                delivery_aggregators: active.map(item => ({ ...item, amount: '' }))
+            }));
         };
 
         google.script.run
@@ -639,12 +661,24 @@ function BilingualEmployeeDailyEntryTab(props) {
                                     sales: {
                                         total_revenue: data.sales ? String(data.sales.total_revenue || '') : '',
                                         shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : '',
-                                        cash_sales: data.sales ? String(data.sales.cash_sales || '') : '',
-                                        card_sales: data.sales ? String(data.sales.card_sales || '') : '',
-                                        delivery_aggregator_1: data.sales ? String(data.sales.delivery_aggregator_1 || '') : '',
-                                        delivery_aggregator_2: data.sales ? String(data.sales.delivery_aggregator_2 || '') : '',
                                         other_food_revenue: data.sales ? String(data.sales.other_food_revenue || '') : '',
                                         petty_cash_total: data.sales ? String(data.sales.petty_cash_total || '') : ''
+                                    },
+                                    paymentBreakdown: {
+                                        cash_sales: data.salesBreakdown ? String(data.salesBreakdown.cash_sales || '') : (data.sales ? String(data.sales.cash_sales || '') : ''),
+                                        card_sales: data.salesBreakdown ? String(data.salesBreakdown.card_sales || '') : (data.sales ? String(data.sales.card_sales || '') : ''),
+                                        delivery_aggregators: (() => {
+                                            try {
+                                                const parsed = data.salesBreakdown && data.salesBreakdown.aggregator_details ? JSON.parse(data.salesBreakdown.aggregator_details) : [];
+                                                return aggregatorOptions.map(option => {
+                                                    const matched = parsed.find(p => p.id === option.id || p.name === option.name);
+                                                    return { ...option, amount: matched ? String(matched.amount || '') : '' };
+                                                });
+                                            } catch (error) {
+                                                return aggregatorOptions.map(option => ({ ...option, amount: '' }));
+                                            }
+                                        })(),
+                                        aggregator_details: data.salesBreakdown ? String(data.salesBreakdown.aggregator_details || '') : ''
                                     },
                                     rawProteins: {
                                         frozen_chicken_breast_opening: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_opening || '') : '',
@@ -769,12 +803,14 @@ function BilingualEmployeeDailyEntryTab(props) {
             sales: {
                 total_revenue: '',
                 shawarma_revenue: '',
-                cash_sales: '',
-                card_sales: '',
-                delivery_aggregator_1: '',
-                delivery_aggregator_2: '',
                 other_food_revenue: '',
                 petty_cash_total: ''
+            },
+            paymentBreakdown: {
+                cash_sales: '',
+                card_sales: '',
+                delivery_aggregators: aggregatorOptions.map(a => ({ ...a, amount: '' })),
+                aggregator_details: ''
             },
             notes: ''
         });
@@ -825,8 +861,16 @@ function BilingualEmployeeDailyEntryTab(props) {
                 shawarmaStack: formData.shawarmaStack,
                 sales: {
                     ...formData.sales,
+                    cash_sales: paymentBreakdown.cash_sales,
+                    card_sales: paymentBreakdown.card_sales,
+                    delivery_aggregator_1: calculateDeliveryTotal(),
+                    delivery_aggregator_2: 0,
                     other_food_revenue: calculateOtherFoodRevenue(),
                     petty_cash_total: calculatePettyCashTotal()
+                },
+                paymentBreakdown: {
+                    ...paymentBreakdown,
+                    delivery_aggregators: paymentBreakdown.delivery_aggregators || []
                 },
                 rawProteins: formData.rawProteins,
                 marinatedProteins: formData.marinatedProteins,
@@ -922,6 +966,10 @@ function BilingualEmployeeDailyEntryTab(props) {
 
     const calculatePettyCashTotal = () => {
         return pettyCashEntries.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+    };
+
+    const calculateDeliveryTotal = () => {
+        return (paymentBreakdown.delivery_aggregators || []).reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
     };
 
     const handleAddPettyCashEntry = () => {
@@ -1416,47 +1464,49 @@ function BilingualEmployeeDailyEntryTab(props) {
                                 disabled: fieldsLocked
                             })
                         ),
-                        React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('cashSales')),
-                            React.createElement('input', {
-                                type: 'number',
-                                step: '0.01',
-                                value: formData.sales.cash_sales,
-                                onChange: e => handleInputChange('sales', 'cash_sales', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
-                                disabled: fieldsLocked
-                            })
+                        ['cash_sales', 'card_sales'].map(key => (
+                            React.createElement('div', { key },
+                                React.createElement('label', { className: 'block text-sm font-medium mb-1' }, key === 'cash_sales' ? t('cashSales') : t('cardSales')),
+                                React.createElement('input', {
+                                    type: 'number',
+                                    step: '0.01',
+                                    value: paymentBreakdown[key],
+                                    onChange: e => setPaymentBreakdown(prev => ({ ...prev, [key]: normalizeNumberInput(e.target.value) })),
+                                    className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                    disabled: fieldsLocked
+                                })
+                            )
+                        )),
+                        React.createElement('div', { className: 'md:col-span-2' },
+                            React.createElement('label', { className: 'block text-sm font-medium mb-2' }, t('deliveryAggregator1')),
+                            React.createElement('div', { className: 'space-y-2' },
+                                (paymentBreakdown.delivery_aggregators || []).map(item => (
+                                    React.createElement('div', { key: item.id, className: 'border rounded p-3 bg-white shadow-sm flex items-center justify-between' },
+                                        React.createElement('div', null,
+                                            React.createElement('p', { className: 'text-sm font-medium text-gray-800' }, item.name || 'Aggregator'),
+                                            React.createElement('p', { className: 'text-xs text-gray-500' }, `${t('commission')}: ${item.commission_percent || 0}%`)
+                                        ),
+                                        React.createElement('div', { className: 'w-32' },
+                                            React.createElement('input', {
+                                                type: 'number',
+                                                step: '0.01',
+                                                value: item.amount,
+                                                onChange: e => updateAggregatorAmount(item.id, e.target.value),
+                                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                                disabled: fieldsLocked
+                                            })
+                                        )
+                                    )
+                                ))
+                            )
                         ),
-                        React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('cardSales')),
-                            React.createElement('input', {
-                                type: 'number',
-                                step: '0.01',
-                                value: formData.sales.card_sales,
-                                onChange: e => handleInputChange('sales', 'card_sales', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
-                                disabled: fieldsLocked
-                            })
-                        ),
-                        React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, getAggregatorLabel(0)),
-                            React.createElement('input', {
-                                type: 'number',
-                                step: '0.01',
-                                value: formData.sales.delivery_aggregator_1,
-                                onChange: e => handleInputChange('sales', 'delivery_aggregator_1', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
-                                disabled: fieldsLocked
-                            })
-                        ),
-                        React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, getAggregatorLabel(1)),
-                            React.createElement('input', {
-                                type: 'number',
-                                step: '0.01',
-                                value: formData.sales.delivery_aggregator_2,
-                                onChange: e => handleInputChange('sales', 'delivery_aggregator_2', e.target.value),
-                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                        React.createElement('div', { className: 'md:col-span-2' },
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('notes')),
+                            React.createElement('textarea', {
+                                value: paymentBreakdown.aggregator_details,
+                                onChange: e => setPaymentBreakdown(prev => ({ ...prev, aggregator_details: e.target.value })),
+                                className: 'w-full p-3 border rounded focus:ring-2 focus:ring-redbrand-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                rows: '2',
                                 disabled: fieldsLocked
                             })
                         ),
