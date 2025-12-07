@@ -17,6 +17,7 @@ function ManagementDashboard() {
     const [lastLoadedCustomDate, setLastLoadedCustomDate] = React.useState('');
     const [pendingCustomDate, setPendingCustomDate] = React.useState('');
     const [isCustomPickerOpen, setIsCustomPickerOpen] = React.useState(false);
+    const [customDateDirty, setCustomDateDirty] = React.useState(false);
     const [showDataStatus, setShowDataStatus] = React.useState(false);
     const [showDebugData, setShowDebugData] = React.useState(false);
 
@@ -125,8 +126,14 @@ function ManagementDashboard() {
             ? customDateOverride
             : customDate;
 
-        if (selectedPeriod === 'custom' && !effectiveCustomDate) {
-            return;
+        const hasCustomDate = Boolean(effectiveCustomDate);
+        const parsedCustomDate = hasCustomDate ? new Date(effectiveCustomDate) : null;
+        const isValidCustomDate = parsedCustomDate && !isNaN(parsedCustomDate.getTime());
+
+        if (selectedPeriod === 'custom') {
+            if (!hasCustomDate || !isValidCustomDate) {
+                return;
+            }
         }
 
         if (dashboardData) {
@@ -145,7 +152,7 @@ function ManagementDashboard() {
             const formatISO = (d) => d.toISOString().split('T')[0];
 
             if (selectedPeriod === 'custom' && effectiveCustomDate) {
-                dateParam = formatISO(new Date(effectiveCustomDate));
+                dateParam = formatISO(parsedCustomDate);
             } else if (selectedPeriod === 'today') {
                 dateParam = formatISO(new Date());
             } else if (selectedPeriod === 'yesterday') {
@@ -790,15 +797,28 @@ function ManagementDashboard() {
         cardLoading.inventory
     );
 
-    const commitCustomDateSelection = (value) => {
+    const isValidDateValue = (value) => {
+        if (!value) return false;
+        const parsed = new Date(value);
+        return !isNaN(parsed.getTime());
+    };
+
+    const commitCustomDateSelection = (value, options = {}) => {
         const resolvedDate = typeof value === 'string' ? value : pendingCustomDate;
+        const allowDuringPicker = options.allowDuringPicker === true;
+        const requireDirty = options.requireDirty === true;
 
         if (selectedPeriod !== 'custom') return;
-        if (!resolvedDate) return;
-        if (isCustomPickerOpen) return;
+        if (!isValidDateValue(resolvedDate)) return;
+        if (requireDirty && !customDateDirty) return;
+        if (!allowDuringPicker && isCustomPickerOpen) return;
         if (isDashboardBusy()) return;
-        if (resolvedDate === lastLoadedCustomDate) return;
+        if (resolvedDate === lastLoadedCustomDate) {
+            setCustomDateDirty(false);
+            return;
+        }
 
+        setCustomDateDirty(false);
         loadDashboardData(resolvedDate);
     };
 
@@ -806,11 +826,12 @@ function ManagementDashboard() {
         const value = event.target.value;
         setCustomDate(value);
         setPendingCustomDate(value);
+        setCustomDateDirty(true);
 
-        // If the picker is already closed (e.g., keyboard entry), commit immediately
-        if (!isCustomPickerOpen) {
-            commitCustomDateSelection(value);
-        }
+        // Commit immediately when a new date is chosen, even if the native picker
+        // keeps the input focused. This only fires when the value actually changes
+        // (not while navigating the calendar).
+        commitCustomDateSelection(value, { allowDuringPicker: true });
     };
 
     return (
@@ -833,6 +854,7 @@ function ManagementDashboard() {
                                 setLastLoadedCustomDate('');
                                 setPendingCustomDate('');
                                 setIsCustomPickerOpen(false);
+                                setCustomDateDirty(false);
                             }}
                             className="px-3 py-2 border rounded focus:ring-2 focus:ring-olive-500"
                         >
@@ -852,7 +874,7 @@ function ManagementDashboard() {
                                 onFocus={() => setIsCustomPickerOpen(true)}
                                 onBlur={() => {
                                     setIsCustomPickerOpen(false);
-                                    commitCustomDateSelection();
+                                    commitCustomDateSelection(undefined, { requireDirty: true });
                                 }}
                                 className="px-3 py-2 border rounded focus:ring-2 focus:ring-olive-500"
                             />
