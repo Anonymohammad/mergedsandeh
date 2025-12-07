@@ -170,7 +170,11 @@ function ManagementDashboard() {
                             };
                         }
 
-                        if (parsedData.enhanced_analytics?.sales?.performance_metrics) {
+                        if (
+                            parsedData.enhanced_analytics &&
+                            parsedData.enhanced_analytics.sales &&
+                            parsedData.enhanced_analytics.sales.performance_metrics
+                        ) {
                             parsedData.enhanced_analytics.sales.performance_metrics = {
                                 ...parsedData.enhanced_analytics.sales.performance_metrics,
                                 food_cost_percentage: safeNumber(parsedData.enhanced_analytics.sales.performance_metrics.food_cost_percentage, 0),
