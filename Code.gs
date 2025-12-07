@@ -2,6 +2,15 @@
 // FULLY COMPATIBLE with existing Employee app data structure
 // Based on Employee Code.gs with Management features added
 
+// Optional namespace for safe testing without touching production sheets
+const DATA_NAMESPACE = (PropertiesService.getScriptProperties().getProperty('DATA_NAMESPACE') || '').trim();
+
+function getSheetWithNamespace(sheetName, ss) {
+  const spreadsheet = ss || SpreadsheetApp.getActiveSpreadsheet();
+  const resolvedName = DATA_NAMESPACE ? `${DATA_NAMESPACE}${sheetName}` : sheetName;
+  return spreadsheet.getSheetByName(resolvedName);
+}
+
 // Database structure definition (EXACT from Employee Code.gs)
 const REQUIRED_SHEETS = {
   // Enhanced Employee Management with language support (UNCHANGED)
@@ -106,6 +115,32 @@ const REQUIRED_SHEETS = {
     ]
   },
 
+  DailySales: {
+    requiredHeaders: [
+      'id', 'sales_date', 'total_revenue', 'shawarma_revenue', 'total_food_cost',
+      'food_cost_percentage', 'total_orders', 'employee_id', 'created_at', 'updated_at'
+    ]
+  },
+
+  DailySalesBreakdown: {
+    requiredHeaders: [
+      'id', 'sales_date', 'daily_sales_id', 'cash_sales', 'card_sales', 'delivery_sales',
+      'aggregator_details', 'cash_expenses', 'expense_notes', 'created_at', 'updated_at'
+    ]
+  },
+
+  DeliveryAggregators: {
+    requiredHeaders: [
+      'id', 'name', 'commission_percent', 'active', 'created_at', 'updated_at'
+    ]
+  },
+
+  DailyPettyCash: {
+    requiredHeaders: [
+      'id', 'sales_date', 'daily_sales_id', 'category', 'description', 'amount', 'paid_by', 'created_at', 'updated_at'
+    ]
+  },
+
   Item: {
     requiredHeaders: [
       'id', 'name', 'category', 'unit', 'frequency', 'is_prepared', 'cost_per_unit',
@@ -124,15 +159,6 @@ const REQUIRED_SHEETS = {
   PettyCashDetail: {
     requiredHeaders: [
       'id', 'daily_sales_id', 'category', 'description', 'amount', 'paid_by',
-      'employee_id', 'created_at', 'updated_at'
-    ]
-  },
-
-  DailySales: {
-    requiredHeaders: [
-      'id', 'sales_date', 'total_revenue', 'shawarma_revenue', 'other_food_revenue',
-      'cash_sales', 'card_sales', 'delivery_aggregator_1', 'delivery_aggregator_2',
-      'total_food_cost', 'food_cost_percentage', 'total_orders', 'petty_cash_total',
       'employee_id', 'created_at', 'updated_at'
     ]
   },
@@ -1881,7 +1907,7 @@ function assessDataQuality(baseReport) {
 // Helper function to get sheet data (EXACT from Employee Code.gs)
 function getSheetData(sheetName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(sheetName);
+  const sheet = getSheetWithNamespace(sheetName, ss);
   
   if (!sheet || sheet.getLastRow() <= 1) {
     return [];
@@ -2333,6 +2359,61 @@ function generateWeeklyReport(date) {
   } catch (error) {
     Logger.log('Error generating weekly report: ' + error.toString());
     throw new Error('Failed to generate weekly report: ' + error.message);
+  }
+}
+
+// Delivery aggregator management
+function getAggregatorSettings(returnRaw) {
+  const sheet = getSheetWithNamespace('DeliveryAggregators');
+  if (!sheet || sheet.getLastRow() <= 1) {
+    return returnRaw ? [] : JSON.stringify([]);
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+
+  const items = data.slice(1).map(row => {
+    const record = {};
+    headers.forEach((header, idx) => record[header] = row[idx]);
+    return record;
+  });
+
+  return returnRaw ? items : JSON.stringify(items);
+}
+
+function saveAggregatorSettings(settingsJson) {
+  try {
+    const settings = JSON.parse(settingsJson);
+    const sheet = getSheetWithNamespace('DeliveryAggregators');
+    if (!sheet) {
+      return JSON.stringify({ success: false, message: 'Aggregator sheet missing' });
+    }
+
+    const headers = REQUIRED_SHEETS.DeliveryAggregators.requiredHeaders;
+    sheet.clearContents();
+    sheet.getRange(1, 1, 1, headers.length)
+      .setValues([headers])
+      .setBackground('#E6E6E6')
+      .setFontWeight('bold');
+
+    settings.forEach(item => {
+      const id = item.id || Utilities.getUuid();
+      const created = item.created_at ? new Date(item.created_at) : new Date();
+      const row = [
+        id,
+        item.name || '',
+        parseFloat(item.commission_percent) || 0,
+        item.active === false ? false : true,
+        created,
+        new Date()
+      ];
+      sheet.appendRow(row);
+    });
+
+    return JSON.stringify({ success: true });
+  } catch (error) {
+    Logger.log('Error saving aggregator settings: ' + error.toString());
+    return JSON.stringify({ success: false, message: 'Failed to save aggregators' });
   }
 }
 
