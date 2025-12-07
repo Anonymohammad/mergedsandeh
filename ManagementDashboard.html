@@ -18,9 +18,8 @@ function ManagementDashboard() {
     const [showDebugData, setShowDebugData] = React.useState(false);
 
     React.useEffect(() => {
-        if (selectedPeriod !== 'custom' || (selectedPeriod === 'custom' && customDate)) {
-            loadDashboardData();
-        }
+        if (selectedPeriod === 'custom' && !customDate) return;
+        loadDashboardData();
     }, [selectedPeriod, customDate]);
 
     const getAcceptableRemainingRange = (stackWeightKg) => {
@@ -116,6 +115,10 @@ function ManagementDashboard() {
     };
 
     const loadDashboardData = async () => {
+        if (selectedPeriod === 'custom' && !customDate) {
+            return;
+        }
+
         if (dashboardData) {
             setCardLoading({
                 metrics: true,
@@ -150,6 +153,33 @@ function ManagementDashboard() {
                     console.log("Received dashboard data:", data);
                     try {
                         const parsedData = JSON.parse(data);
+
+                        const safeNumber = (value, defaultValue = 0) => {
+                            const num = Number(value);
+                            return Number.isFinite(num) ? num : defaultValue;
+                        };
+
+                        if (parsedData.sales) {
+                            parsedData.sales = {
+                                ...parsedData.sales,
+                                total_revenue: safeNumber(parsedData.sales.total_revenue, 0),
+                                shawarma_revenue: safeNumber(parsedData.sales.shawarma_revenue, 0),
+                                other_food_revenue: safeNumber(parsedData.sales.other_food_revenue, 0),
+                                petty_cash_total: safeNumber(parsedData.sales.petty_cash_total, 0),
+                                food_cost_percentage: safeNumber(parsedData.sales.food_cost_percentage, 0)
+                            };
+                        }
+
+                        if (parsedData.enhanced_analytics?.sales?.performance_metrics) {
+                            parsedData.enhanced_analytics.sales.performance_metrics = {
+                                ...parsedData.enhanced_analytics.sales.performance_metrics,
+                                food_cost_percentage: safeNumber(parsedData.enhanced_analytics.sales.performance_metrics.food_cost_percentage, 0),
+                                revenue_quality_score: safeNumber(parsedData.enhanced_analytics.sales.performance_metrics.revenue_quality_score, 0),
+                                petty_cash_percentage: safeNumber(parsedData.enhanced_analytics.sales.performance_metrics.petty_cash_percentage, 0),
+                                payment_method_diversity: safeNumber(parsedData.enhanced_analytics.sales.performance_metrics.payment_method_diversity, 0),
+                                shawarma_percentage: safeNumber(parsedData.enhanced_analytics.sales.performance_metrics.shawarma_percentage, 0)
+                            };
+                        }
 
                         if (parsedData.shawarma) {
                             parsedData.shawarma = computeShawarmaMetrics(parsedData.shawarma);
@@ -749,10 +779,9 @@ function ManagementDashboard() {
                         <select
                             value={selectedPeriod}
                             onChange={e => {
-                                setSelectedPeriod(e.target.value);
-                                if (e.target.value !== 'custom') {
-                                    setCustomDate('');
-                                }
+                                const newPeriod = e.target.value;
+                                setSelectedPeriod(newPeriod);
+                                setCustomDate('');
                             }}
                             className="px-3 py-2 border rounded focus:ring-2 focus:ring-olive-500"
                         >
@@ -775,7 +804,13 @@ function ManagementDashboard() {
                         
                         <button
                             onClick={loadDashboardData}
-                            disabled={cardLoading.metrics || cardLoading.shawarma || cardLoading.sales || cardLoading.inventory}
+                            disabled={
+                                cardLoading.metrics ||
+                                cardLoading.shawarma ||
+                                cardLoading.sales ||
+                                cardLoading.inventory ||
+                                (selectedPeriod === 'custom' && !customDate)
+                            }
                             className="bg-olive-600 text-white px-4 py-2 rounded hover:bg-olive-700 disabled:opacity-50 flex items-center gap-2"
                         >
                             {(cardLoading.metrics || cardLoading.shawarma || cardLoading.sales || cardLoading.inventory) && (
