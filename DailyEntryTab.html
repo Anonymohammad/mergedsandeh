@@ -399,6 +399,7 @@ function DailyEntryTab() {
     });
     
     const [loading, setLoading] = React.useState(false);
+    const [aggregatorOptions, setAggregatorOptions] = React.useState([]);
     const [calculatedMetrics, setCalculatedMetrics] = React.useState(null);
     const [selectedDate, setSelectedDate] = React.useState(new Date().toISOString().split('T')[0]);
     const [existingEntry, setExistingEntry] = React.useState(null);
@@ -437,8 +438,40 @@ function DailyEntryTab() {
         });
     };
 
+    const getAggregatorLabel = (index) => {
+        const fallbackKey = index === 0 ? 'deliveryAggregator1' : 'deliveryAggregator2';
+        return (aggregatorOptions[index] && aggregatorOptions[index].name) ? aggregatorOptions[index].name : t(fallbackKey);
+    };
+
     React.useEffect(() => {
         validateTranslations();
+    }, []);
+
+    React.useEffect(() => {
+        const applyAggregators = (list) => {
+            const active = (list || []).filter(item => item.active !== false);
+            setAggregatorOptions(active);
+        };
+
+        google.script.run
+            .withSuccessHandler(result => {
+                try {
+                    const parsed = Array.isArray(result)
+                        ? result
+                        : (typeof result === 'string' && result.trim())
+                            ? JSON.parse(result)
+                            : [];
+                    applyAggregators(parsed);
+                } catch (error) {
+                    console.error('Failed to parse aggregator settings', error);
+                    applyAggregators([]);
+                }
+            })
+            .withFailureHandler(err => {
+                console.error('Failed to load aggregators', err);
+                applyAggregators([]);
+            })
+            .getAggregatorSettings(false);
     }, []);
 
     const INVENTORY_CONFIG = {
@@ -1963,7 +1996,7 @@ function DailyEntryTab() {
                         ),
                         // Delivery platform 1
                         React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('deliveryAggregator1')),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, getAggregatorLabel(0)),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1975,7 +2008,7 @@ function DailyEntryTab() {
                         ),
                         // Delivery platform 2
                         React.createElement('div', null,
-                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('deliveryAggregator2')),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, getAggregatorLabel(1)),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
