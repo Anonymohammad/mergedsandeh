@@ -1588,20 +1588,29 @@ function generateReportFromNewTables(targetDateString) {
       todaySales.petty_cash_total = calculatePettyCashTotal(pettyCashEntries);
     }
 
-    const todaySnapshot = Array.isArray(snapshotData) ? snapshotData.filter(row => row.date && new Date(row.date).toDateString() === targetDateString) : [];
+    // CRITICAL FIX: SnapshotLog only has closing_quantity (remaining), not opening/received/expired
+    // For full inventory data, read from old tables until SnapshotLog migration is complete
+    const dataMode = (MIGRATION_CONFIG.dualWriteMode && DATA_NAMESPACE) ? 'base' : 'namespaced';
+    const rawProteinsData = getSheetDataByMode('DailyRawProteins', dataMode);
+    const marinatedProteinsData = getSheetDataByMode('DailyMarinatedProteins', dataMode);
+    const breadData = getSheetDataByMode('DailyBreadTracking', dataMode);
+    const highCostData = getSheetDataByMode('DailyHighCostItems', dataMode);
 
-    let inventoryData = null;
-    if (todaySnapshot.length > 0) {
-      inventoryData = mapSnapshotLogToFormFormat(todaySnapshot);
-    }
+    const rawProteins = rawProteinsData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
+    const marinatedProteins = marinatedProteinsData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
+    const bread = breadData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
+    const highCostItems = highCostData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
 
     return {
       date: targetDateString,
-      dataFound: !!(todayShawarma || todaySales || todaySnapshot.length > 0),
+      dataFound: !!(todayShawarma || todaySales || rawProteins || marinatedProteins || bread || highCostItems),
       shawarma: todayShawarma || null,
       sales: todaySales || null,
       salesBreakdown: todayBreakdown,
-      inventory: inventoryData,
+      rawProteins: rawProteins,
+      marinatedProteins: marinatedProteins,
+      bread: bread,
+      highCostItems: highCostItems,
       pettyCashEntries: pettyCashEntries,
       notes: ''
     };
@@ -1616,7 +1625,10 @@ function generateReportFromNewTables(targetDateString) {
       shawarma: null,
       sales: null,
       salesBreakdown: null,
-      inventory: null,
+      rawProteins: null,
+      marinatedProteins: null,
+      bread: null,
+      highCostItems: null,
       pettyCashEntries: [],
       notes: ''
     };
