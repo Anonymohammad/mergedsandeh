@@ -75,6 +75,15 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
             total_revenue: '',
             shawarma_revenue: ''
         },
+        // CRITICAL FIX: Add payment breakdown fields
+        paymentBreakdown: {
+            cash_sales: '',
+            card_sales: '',
+            delivery_aggregators: [],
+            cash_expenses: ''
+        },
+        // CRITICAL FIX: Add petty cash entries
+        pettyCashEntries: [],
         notes: ''
     });
     
@@ -223,6 +232,19 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
                                         total_revenue: data.sales ? String(data.sales.total_revenue || '') : '',
                                         shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : ''
                                     },
+                                    // CRITICAL FIX: Load payment breakdown data
+                                    paymentBreakdown: {
+                                        cash_sales: data.salesBreakdown ? String(data.salesBreakdown.cash_sales || '') : '',
+                                        card_sales: data.salesBreakdown ? String(data.salesBreakdown.card_sales || '') : '',
+                                        delivery_aggregators: data.salesBreakdown && data.salesBreakdown.aggregator_details ?
+                                            (typeof data.salesBreakdown.aggregator_details === 'string' ?
+                                                JSON.parse(data.salesBreakdown.aggregator_details) :
+                                                data.salesBreakdown.aggregator_details) :
+                                            [],
+                                        cash_expenses: data.salesBreakdown ? String(data.salesBreakdown.cash_expenses || '') : ''
+                                    },
+                                    // CRITICAL FIX: Load petty cash entries
+                                    pettyCashEntries: data.pettyCashEntries || [],
                                     rawProteins: {
                                         frozen_chicken_breast_opening: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_opening || '') : '',
                                         frozen_chicken_breast_received: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_received || '') : '',
@@ -345,9 +367,16 @@ function BilingualEmployeeDailyEntryTab({ employeeSession }) {
             sales: {
                 total_revenue: '', shawarma_revenue: ''
             },
+            paymentBreakdown: {
+                cash_sales: '',
+                card_sales: '',
+                delivery_aggregators: [],
+                cash_expenses: ''
+            },
+            pettyCashEntries: [],
             notes: ''
         });
-        
+
         setDuplicateWarning(false);
         setIsUpdateMode(false);
         setFieldsLocked(false);
