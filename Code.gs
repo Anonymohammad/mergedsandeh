@@ -1588,29 +1588,20 @@ function generateReportFromNewTables(targetDateString) {
       todaySales.petty_cash_total = calculatePettyCashTotal(pettyCashEntries);
     }
 
-    // CRITICAL FIX: SnapshotLog only has closing_quantity (remaining), not opening/received/expired
-    // For full inventory data, read from old tables until SnapshotLog migration is complete
-    const dataMode = (MIGRATION_CONFIG.dualWriteMode && DATA_NAMESPACE) ? 'base' : 'namespaced';
-    const rawProteinsData = getSheetDataByMode('DailyRawProteins', dataMode);
-    const marinatedProteinsData = getSheetDataByMode('DailyMarinatedProteins', dataMode);
-    const breadData = getSheetDataByMode('DailyBreadTracking', dataMode);
-    const highCostData = getSheetDataByMode('DailyHighCostItems', dataMode);
+    const todaySnapshot = Array.isArray(snapshotData) ? snapshotData.filter(row => row.date && new Date(row.date).toDateString() === targetDateString) : [];
 
-    const rawProteins = rawProteinsData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
-    const marinatedProteins = marinatedProteinsData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
-    const bread = breadData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
-    const highCostItems = highCostData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
+    let inventoryData = null;
+    if (todaySnapshot.length > 0) {
+      inventoryData = mapSnapshotLogToFormFormat(todaySnapshot);
+    }
 
     return {
       date: targetDateString,
-      dataFound: !!(todayShawarma || todaySales || rawProteins || marinatedProteins || bread || highCostItems),
+      dataFound: !!(todayShawarma || todaySales || todaySnapshot.length > 0),
       shawarma: todayShawarma || null,
       sales: todaySales || null,
       salesBreakdown: todayBreakdown,
-      rawProteins: rawProteins,
-      marinatedProteins: marinatedProteins,
-      bread: bread,
-      highCostItems: highCostItems,
+      inventory: inventoryData,
       pettyCashEntries: pettyCashEntries,
       notes: ''
     };
@@ -1625,10 +1616,7 @@ function generateReportFromNewTables(targetDateString) {
       shawarma: null,
       sales: null,
       salesBreakdown: null,
-      rawProteins: null,
-      marinatedProteins: null,
-      bread: null,
-      highCostItems: null,
+      inventory: null,
       pettyCashEntries: [],
       notes: ''
     };
@@ -2388,27 +2376,14 @@ function saveSalesData(entryData, entryDate, employeeId, options = {}) {
   const totalRevenue = parseFloat(salesData.total_revenue) || 0;
   const shawarmaRevenue = parseFloat(salesData.shawarma_revenue) || 0;
 
-  // CRITICAL FIX: Calculate actual food cost from inventory usage with variance analysis
+  // CRITICAL FIX: Calculate actual food cost from inventory usage instead of estimating
   let actualFoodCost = 0;
   let foodCostPercentage = 0;
-  let costBreakdown = null;
 
   try {
-    const costResult = calculateActualFoodCost(entryData, entryDate);
-
-    // Extract actual cost (handle both object and number returns for compatibility)
-    actualFoodCost = typeof costResult === 'object' && costResult.actualTotal !== undefined ?
-                     costResult.actualTotal : costResult;
-
+    actualFoodCost = calculateActualFoodCost(entryData, entryDate);
     if (actualFoodCost > 0) {
       foodCostPercentage = totalRevenue > 0 ? (actualFoodCost / totalRevenue) * 100 : 0;
-      costBreakdown = typeof costResult === 'object' ? costResult : null;
-
-      // Log cost variance if significant
-      if (costBreakdown && Math.abs(costBreakdown.totalVariancePercent) > 10) {
-        console.log(`ALERT: Food cost variance ${costBreakdown.totalVariancePercent.toFixed(1)}% for ${entryDate}`);
-        console.log(`Actual: ${actualFoodCost.toFixed(2)} QAR, Reference: ${costBreakdown.referenceTotal.toFixed(2)} QAR`);
-      }
     } else {
       // Fallback to estimation only if we can't calculate actual
       console.log(`WARNING: Could not calculate actual food cost for ${entryDate}. Using estimation.`);
@@ -2438,10 +2413,8 @@ function saveSalesData(entryData, entryDate, employeeId, options = {}) {
 }
 
 function calculateActualFoodCost(entryData, entryDate) {
-  // ENHANCED: Calculate actual food cost with comparison to reference costs
-  let actualTotalCost = 0;
-  let referenceTotalCost = 0;
-  const itemBreakdown = [];
+  // Calculate actual food cost from inventory usage
+  let totalFoodCost = 0;
 
   // 1. Calculate shawarma stack cost
   if (entryData.shawarmaStack) {
@@ -2449,29 +2422,8 @@ function calculateActualFoodCost(entryData, entryDate) {
     const startingWeight = parseFloat(stackData.starting_weight) || 0;
     const remainingWeight = parseFloat(stackData.remaining_weight) || 0;
     const usedWeight = startingWeight - remainingWeight;
-
-    const actualCostPerKg = getShawarmaStackCostPerKg(entryDate);
-    const referenceCostPerKg = 12.35; // Reference/average cost for comparison
-
-    const actualCost = usedWeight * actualCostPerKg;
-    const referenceCost = usedWeight * referenceCostPerKg;
-
-    actualTotalCost += actualCost;
-    referenceTotalCost += referenceCost;
-
-    if (usedWeight > 0) {
-      itemBreakdown.push({
-        item: 'Shawarma Stack',
-        usage: usedWeight,
-        unit: 'kg',
-        actualCostPerUnit: actualCostPerKg,
-        referenceCostPerUnit: referenceCostPerKg,
-        actualTotalCost: actualCost,
-        referenceTotalCost: referenceCost,
-        variance: actualCost - referenceCost,
-        variancePercent: referenceCost > 0 ? ((actualCost - referenceCost) / referenceCost * 100) : 0
-      });
-    }
+    const costPerKg = getShawarmaStackCostPerKg(entryDate);
+    totalFoodCost += usedWeight * costPerKg;
   }
 
   // 2. Calculate inventory item costs from actual usage
@@ -2498,90 +2450,15 @@ function calculateActualFoodCost(entryData, entryDate) {
           const usage = opening + received - remaining - expired;
           if (usage > 0) {
             const itemKey = key.replace('_remaining', '');
-
-            // Get both actual and reference costs
-            const actualCostPerUnit = getItemUnitCost(cat.category, itemKey);
-            const referenceCostPerUnit = getItemUnitCostFallback(cat.category, itemKey);
-
-            const actualCost = usage * actualCostPerUnit;
-            const referenceCost = usage * referenceCostPerUnit;
-
-            actualTotalCost += actualCost;
-            referenceTotalCost += referenceCost;
-
-            itemBreakdown.push({
-              item: itemKey.replace(/_/g, ' '),
-              category: cat.category,
-              usage: usage,
-              unit: getItemUnit(cat.category),
-              actualCostPerUnit: actualCostPerUnit,
-              referenceCostPerUnit: referenceCostPerUnit,
-              actualTotalCost: actualCost,
-              referenceTotalCost: referenceCost,
-              variance: actualCost - referenceCost,
-              variancePercent: referenceCost > 0 ? ((actualCost - referenceCost) / referenceCost * 100) : 0
-            });
+            const costPerUnit = getItemUnitCost(cat.category, itemKey);
+            totalFoodCost += usage * costPerUnit;
           }
         }
       }
     }
   });
 
-  // Return detailed cost breakdown for comparison analysis
-  return {
-    actualTotal: actualTotalCost,
-    referenceTotal: referenceTotalCost,
-    totalVariance: actualTotalCost - referenceTotalCost,
-    totalVariancePercent: referenceTotalCost > 0 ? ((actualTotalCost - referenceTotalCost) / referenceTotalCost * 100) : 0,
-    itemBreakdown: itemBreakdown,
-    // Also return simple number for backward compatibility
-    simpleTotal: actualTotalCost
-  };
-}
-
-function getItemUnit(category) {
-  const units = {
-    rawProteins: 'kg',
-    marinatedProteins: 'kg',
-    bread: 'pieces',
-    highCostItems: 'kg'
-  };
-  return units[category] || 'unit';
-}
-
-// Get detailed cost variance report for a specific date
-function getCostVarianceReport(dateString) {
-  try {
-    const reportData = JSON.parse(generateDailyReport(dateString));
-    if (!reportData || !reportData.dataFound) {
-      return JSON.stringify({
-        success: false,
-        message: 'No data found for this date'
-      });
-    }
-
-    // Calculate cost breakdown with variance
-    const costAnalysis = calculateActualFoodCost(reportData, dateString);
-
-    return JSON.stringify({
-      success: true,
-      date: dateString,
-      costAnalysis: costAnalysis,
-      summary: {
-        actualTotal: costAnalysis.actualTotal,
-        referenceTotal: costAnalysis.referenceTotal,
-        totalVariance: costAnalysis.totalVariance,
-        totalVariancePercent: costAnalysis.totalVariancePercent,
-        status: Math.abs(costAnalysis.totalVariancePercent) > 15 ? 'critical' :
-                Math.abs(costAnalysis.totalVariancePercent) > 10 ? 'warning' : 'acceptable'
-      }
-    });
-  } catch (error) {
-    return JSON.stringify({
-      success: false,
-      error: error.message
-    });
-  }
+  return totalFoodCost;
 }
 
 // Save payment method and cash expense breakdown
