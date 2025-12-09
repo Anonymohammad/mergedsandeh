@@ -265,6 +265,15 @@ function BilingualEmployeeDailyEntryTab(props) {
     const [employeeContext, setEmployeeContext] = React.useState(getCurrentEmployeeSession());
 
     React.useEffect(() => {
+        if (props.employeeSession) {
+            const normalizedSession = {
+                employee_id: props.employeeSession.employeeId || props.employeeSession.employee_id || 'management',
+                employee_name: props.employeeSession.employeeName || props.employeeSession.employee_name || 'Management',
+                role: props.employeeSession.employeeRole || props.employeeSession.role || 'employee'
+            };
+            window.overrideEmployeeSession = normalizedSession;
+        }
+
         initializeEmployeeContext();
         setEmployeeContext(getCurrentEmployeeSession());
     }, [props.employeeSession]);
@@ -782,10 +791,11 @@ function BilingualEmployeeDailyEntryTab(props) {
         setLoading(true);
         
         try {
+            const activeEmployee = employeeContext || getCurrentEmployeeSession();
             const entryData = {
                 date: selectedDate,
-                employeeId: getCurrentEmployeeSession().employee_id,
-                employeeName: getCurrentEmployeeSession().employee_name,
+                employeeId: activeEmployee.employee_id,
+                employeeName: activeEmployee.employee_name,
                 shawarmaStack: formData.shawarmaStack,
                 sales: {
                     ...formData.sales,

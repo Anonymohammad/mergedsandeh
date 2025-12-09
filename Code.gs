@@ -1337,6 +1337,54 @@ function generateReportFromOldTables(targetDateString) {
   };
 }
 
+function getAggregatorSettings() {
+  const defaults = {
+    delivery_aggregator_1: { name: 'Delivery 1', active: true },
+    delivery_aggregator_2: { name: 'Delivery 2', active: true }
+  };
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const settingsSheet = ss.getSheetByName('SystemSettings');
+
+    if (!settingsSheet) {
+      return JSON.stringify(defaults);
+    }
+
+    const data = settingsSheet.getDataRange().getValues();
+    const headers = data[0];
+    const nameIndex = headers.indexOf('setting_name');
+    const valueIndex = headers.indexOf('setting_value');
+
+    if (nameIndex === -1 || valueIndex === -1) {
+      return JSON.stringify(defaults);
+    }
+
+    const config = { ...defaults };
+    for (let i = 1; i < data.length; i++) {
+      const key = data[i][nameIndex];
+      const value = data[i][valueIndex];
+      if (key === 'delivery_aggregator_1_name' && value) {
+        config.delivery_aggregator_1.name = value;
+      }
+      if (key === 'delivery_aggregator_2_name' && value) {
+        config.delivery_aggregator_2.name = value;
+      }
+      if (key === 'delivery_aggregator_1_active') {
+        config.delivery_aggregator_1.active = value === true || value === 'true';
+      }
+      if (key === 'delivery_aggregator_2_active') {
+        config.delivery_aggregator_2.active = value === true || value === 'true';
+      }
+    }
+
+    return JSON.stringify(config);
+  } catch (error) {
+    console.error('Failed to load aggregator settings', error);
+    return JSON.stringify(defaults);
+  }
+}
+
 function generateDashboardReport(date, options = {}) {
   try {
     const config = {

@@ -267,7 +267,7 @@ function PettyCashModal({ open, onClose, entries, entry, setEntry, editingIndex,
     );
 }
 
-function DailyEntryTab() {
+function DailyEntryTab({ employeeSession }) {
     const { t } = React.useContext(window.LanguageContext);
     const { state, setState } = React.useContext(window.AppContext);
     const [pinError, setPinError] = React.useState(false);
@@ -275,9 +275,18 @@ function DailyEntryTab() {
     const [employeeContext, setEmployeeContext] = React.useState(getCurrentEmployeeSession());
 
     React.useEffect(() => {
+        if (employeeSession) {
+            const normalizedSession = {
+                employee_id: employeeSession.employeeId || employeeSession.employee_id || 'management',
+                employee_name: employeeSession.employeeName || employeeSession.employee_name || 'Management',
+                role: employeeSession.employeeRole || employeeSession.role || 'employee'
+            };
+            window.overrideEmployeeSession = normalizedSession;
+        }
+
         initializeEmployeeContext();
         setEmployeeContext(getCurrentEmployeeSession());
-    }, [state && state.employeeSession]);
+    }, [state && state.employeeSession, employeeSession]);
     const [formData, setFormData] = React.useState({
         // Shawarma Stack Data (No carry forward - fresh daily, NO revenue field)
         shawarmaStack: {
@@ -890,10 +899,12 @@ function DailyEntryTab() {
                 mayo_remaining: formData.highCostItems.mayo_remaining
             };
 
+            const activeEmployee = employeeContext || getCurrentEmployeeSession();
+
             const entryData = {
                 date: selectedDate,
-                employeeId: getCurrentEmployeeSession().employee_id,
-                employeeName: getCurrentEmployeeSession().employee_name,
+                employeeId: activeEmployee.employee_id,
+                employeeName: activeEmployee.employee_name,
                 shawarmaStack: {
                     ...formData.shawarmaStack,
                     revenue: formData.sales.shawarma_revenue,
