@@ -830,7 +830,12 @@ function saveDailyEntryToNewTables(entryData) {
 
   // Handle inventory data whether provided as nested sections or as a flat `inventory` object
   let inventoryData = null;
-  const hasNestedSections = entryData.rawProteins || entryData.marinatedProteins || entryData.bread || entryData.highCostItems;
+  const hasNestedSections = [
+    entryData.rawProteins,
+    entryData.marinatedProteins,
+    entryData.bread,
+    entryData.highCostItems
+  ].some(section => section && Object.keys(section).length);
 
   if (hasNestedSections) {
     // Use the explicitly provided category sections
@@ -845,7 +850,7 @@ function saveDailyEntryToNewTables(entryData) {
     inventoryData = convertInventoryDataToNestedFormat(entryData.inventory);
   }
 
-  if (inventoryData) {
+  if (inventoryData && Object.values(inventoryData).some(section => Object.keys(section).length)) {
     saveInventorySnapshots(inventoryData, entryDate, employeeId, employeeName);
   }
 
@@ -872,7 +877,14 @@ function saveDailyEntryToOldTables(entryData) {
   const employeeName = entryData.employeeName || entryData.employee_name || '';
 
   let inventoryData;
-  if (entryData.rawProteins || entryData.marinatedProteins || entryData.bread || entryData.highCostItems) {
+  const hasNestedSections = [
+    entryData.rawProteins,
+    entryData.marinatedProteins,
+    entryData.bread,
+    entryData.highCostItems
+  ].some(section => section && Object.keys(section).length);
+
+  if (hasNestedSections) {
     inventoryData = {
       rawProteins: entryData.rawProteins || {},
       marinatedProteins: entryData.marinatedProteins || {},
@@ -883,7 +895,7 @@ function saveDailyEntryToOldTables(entryData) {
     inventoryData = convertInventoryDataToNestedFormat(entryData.inventory);
   }
 
-  if (inventoryData) {
+  if (inventoryData && Object.values(inventoryData).some(section => Object.keys(section).length)) {
     saveToOldInventoryTables(inventoryData, entryDate, employeeId, employeeName);
   }
 
