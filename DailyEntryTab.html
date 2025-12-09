@@ -1,9 +1,286 @@
 
 <script type="text/babel">
+const normalizeNumberInput = (value) => value.replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+
+function getCurrentEmployeeSession() {
+    // Return cached session if available
+    if (window.currentEmployeeSession) return window.currentEmployeeSession;
+
+    // Allow management to override the active employee
+    if (window.overrideEmployeeSession) {
+        window.currentEmployeeSession = window.overrideEmployeeSession;
+        return window.currentEmployeeSession;
+    }
+
+    let session = null;
+
+    // Try to retrieve an authenticated session via helper (login token / PIN lookup)
+    if (typeof window.getEmployeeSession === 'function') {
+        session = window.getEmployeeSession();
+    } else {
+        const cookies = document.cookie.split(';').reduce((acc, cookie) => {
+            const [key, value] = cookie.trim().split('=');
+            if (key) acc[key] = value;
+            return acc;
+        }, {});
+        if (cookies.employeeId && cookies.sessionExpiry && new Date(cookies.sessionExpiry) > new Date()) {
+            session = {
+                employeeId: cookies.employeeId,
+                employeeName: cookies.employeeName,
+                employeeRole: cookies.employeeRole
+            };
+        }
+    }
+
+    if (session) {
+        window.currentEmployeeSession = {
+            employee_id: session.employeeId,
+            employee_name: session.employeeName || 'Management',
+            role: session.employeeRole || 'employee'
+        };
+        return window.currentEmployeeSession;
+    }
+
+    // Default to management when no authenticated employee exists
+    window.currentEmployeeSession = { employee_id: 'management', employee_name: 'Management', role: 'management' };
+    return window.currentEmployeeSession;
+}
+
+function initializeEmployeeContext() {
+    const session = getCurrentEmployeeSession();
+    if (session && session.employee_id && session.employee_id !== 'management') {
+        window.currentEmployeeSession = session;
+    } else {
+        window.currentEmployeeSession = { employee_id: 'management', employee_name: 'Management', role: 'management' };
+    }
+}
+
+function EmployeeContextDisplay({ employee, t }) {
+    return React.createElement('div', { className: 'text-sm text-gray-600 mb-4' },
+        `${t('entryBy')}: ${employee.employee_name} (${employee.role})`
+    );
+}
+
+function convertInventoryDataToNestedFormat(inventory) {
+    const nested = {
+        rawProteins: {},
+        marinatedProteins: {},
+        bread: {},
+        highCostItems: {}
+    };
+
+    const keyMappings = {
+        'chicken_breast_opening': 'rawProteins.frozen_chicken_breast_opening',
+        'chicken_breast_received': 'rawProteins.frozen_chicken_breast_received',
+        'chicken_breast_expired': 'rawProteins.frozen_chicken_breast_expired',
+        'chicken_breast_remaining': 'rawProteins.frozen_chicken_breast_remaining',
+        'chicken_shawarma_opening': 'rawProteins.chicken_shawarma_opening',
+        'chicken_shawarma_received': 'rawProteins.chicken_shawarma_received',
+        'chicken_shawarma_expired': 'rawProteins.chicken_shawarma_expired',
+        'chicken_shawarma_remaining': 'rawProteins.chicken_shawarma_remaining',
+        'steak_opening': 'rawProteins.steak_opening',
+        'steak_received': 'rawProteins.steak_received',
+        'steak_expired': 'rawProteins.steak_expired',
+        'steak_remaining': 'rawProteins.steak_remaining',
+        'fahita_chicken_opening': 'marinatedProteins.fahita_chicken_opening',
+        'fahita_chicken_received': 'marinatedProteins.fahita_chicken_received',
+        'fahita_chicken_expired': 'marinatedProteins.fahita_chicken_expired',
+        'fahita_chicken_remaining': 'marinatedProteins.fahita_chicken_remaining',
+        'chicken_sub_opening': 'marinatedProteins.chicken_sub_opening',
+        'chicken_sub_received': 'marinatedProteins.chicken_sub_received',
+        'chicken_sub_expired': 'marinatedProteins.chicken_sub_expired',
+        'chicken_sub_remaining': 'marinatedProteins.chicken_sub_remaining',
+        'spicy_strips_opening': 'marinatedProteins.spicy_strips_opening',
+        'spicy_strips_received': 'marinatedProteins.spicy_strips_received',
+        'spicy_strips_expired': 'marinatedProteins.spicy_strips_expired',
+        'spicy_strips_remaining': 'marinatedProteins.spicy_strips_remaining',
+        'original_strips_opening': 'marinatedProteins.original_strips_opening',
+        'original_strips_received': 'marinatedProteins.original_strips_received',
+        'original_strips_expired': 'marinatedProteins.original_strips_expired',
+        'original_strips_remaining': 'marinatedProteins.original_strips_remaining',
+        'marinated_steak_opening': 'marinatedProteins.marinated_steak_opening',
+        'marinated_steak_received': 'marinatedProteins.marinated_steak_received',
+        'marinated_steak_expired': 'marinatedProteins.marinated_steak_expired',
+        'marinated_steak_remaining': 'marinatedProteins.marinated_steak_remaining',
+        'saj_bread_opening': 'bread.saj_bread_opening',
+        'saj_bread_received': 'bread.saj_bread_received',
+        'saj_bread_expired': 'bread.saj_bread_expired',
+        'saj_bread_remaining': 'bread.saj_bread_remaining',
+        'pita_bread_opening': 'bread.pita_bread_opening',
+        'pita_bread_received': 'bread.pita_bread_received',
+        'pita_bread_expired': 'bread.pita_bread_expired',
+        'pita_bread_remaining': 'bread.pita_bread_remaining',
+        'bread_rolls_opening': 'bread.bread_rolls_opening',
+        'bread_rolls_received': 'bread.bread_rolls_received',
+        'bread_rolls_expired': 'bread.bread_rolls_expired',
+        'bread_rolls_remaining': 'bread.bread_rolls_remaining',
+        'cream_opening': 'highCostItems.cream_opening',
+        'cream_received': 'highCostItems.cream_received',
+        'cream_expired': 'highCostItems.cream_expired',
+        'cream_remaining': 'highCostItems.cream_remaining',
+        'mayo_opening': 'highCostItems.mayo_opening',
+        'mayo_received': 'highCostItems.mayo_received',
+        'mayo_expired': 'highCostItems.mayo_expired',
+        'mayo_remaining': 'highCostItems.mayo_remaining'
+    };
+
+    Object.keys(inventory || {}).forEach(key => {
+        const mapping = keyMappings[key];
+        if (mapping) {
+            const [section, field] = mapping.split('.');
+            if (!nested[section]) nested[section] = {};
+            nested[section][field] = inventory[key];
+        }
+    });
+
+    return nested;
+}
+
+
+function PettyCashEntryForm({ entry, onChange, onSubmit, onCancel, isEditing, categories, t }) {
+    return React.createElement('div', { className: 'space-y-2 petty-cash-form' },
+        React.createElement('select', {
+            value: entry.category,
+            onChange: e => onChange({ ...entry, category: e.target.value }),
+            className: 'w-full p-2 border rounded'
+        }, [
+            React.createElement('option', { key: '', value: '' }, t('selectCategory')),
+            ...categories.map(cat => React.createElement('option', { key: cat.key, value: cat.key }, cat.label))
+        ]),
+        React.createElement('input', {
+            type: 'text',
+            value: entry.description,
+            onChange: e => onChange({ ...entry, description: e.target.value }),
+            className: 'w-full p-2 border rounded',
+            placeholder: t('description'),
+            required: true
+        }),
+        React.createElement('input', {
+            type: 'number',
+            step: '0.01',
+            min: '0.01',
+            value: entry.amount,
+            onChange: e => onChange({ ...entry, amount: normalizeNumberInput(e.target.value) }),
+            className: 'w-full p-2 border rounded',
+            placeholder: t('amount'),
+            required: true
+        }),
+        React.createElement('input', {
+            type: 'text',
+            value: entry.paid_by,
+            onChange: e => onChange({ ...entry, paid_by: e.target.value }),
+            className: 'w-full p-2 border rounded',
+            placeholder: t('paidBy'),
+            required: true
+        }),
+        React.createElement('div', { className: 'flex space-x-2 modal-actions' },
+            React.createElement('button', {
+                type: 'button',
+                onClick: onSubmit,
+                className: 'bg-olive-600 text-white px-4 py-2 rounded'
+            }, isEditing ? t('updateEntry') : t('addEntry')),
+            isEditing && React.createElement('button', {
+                type: 'button',
+                onClick: onCancel,
+                className: 'bg-gray-500 text-white px-4 py-2 rounded'
+            }, t('cancelEdit'))
+        )
+    );
+}
+
+function PettyCashEntriesList({ entries, onEdit, onDelete, categories, t }) {
+    const total = entries.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+
+    const getCategoryLabel = (key) => {
+        const cat = categories.find(c => c.key === key);
+        return cat ? cat.label : key;
+    };
+
+    if (entries.length === 0) {
+        return React.createElement('p', { className: 'mt-4 text-sm text-gray-500' }, t('noPettyCashEntries'));
+    }
+
+    return React.createElement('div', { className: 'mt-4 petty-cash-table' },
+        React.createElement('table', { className: 'min-w-full text-sm border' },
+            React.createElement('thead', null,
+                React.createElement('tr', { className: 'bg-gray-100' },
+                    [t('category'), t('description'), t('amount'), t('paidBy'), t('actions')].map((h, i) =>
+                        React.createElement('th', { key: i, className: 'px-2 py-1 border text-start' }, h)
+                    )
+                )
+            ),
+            React.createElement('tbody', null,
+                entries.map((e, idx) =>
+                    React.createElement('tr', { key: idx },
+                        React.createElement('td', { className: 'border px-2 py-1' }, getCategoryLabel(e.category)),
+                        React.createElement('td', { className: 'border px-2 py-1' }, e.description),
+                        React.createElement('td', { className: 'border px-2 py-1' }, parseFloat(e.amount).toFixed(2)),
+                        React.createElement('td', { className: 'border px-2 py-1' }, e.paid_by),
+                        React.createElement('td', { className: 'border px-2 py-1 space-x-2' },
+                            React.createElement('button', { type: 'button', onClick: () => onEdit(idx), className: 'text-blue-600' }, t('editEntry')),
+                            React.createElement('button', { type: 'button', onClick: () => onDelete(idx), className: 'text-red-600' }, t('deleteEntry'))
+                        )
+                    )
+                ),
+                React.createElement('tr', { className: 'font-medium bg-gray-50' },
+                    React.createElement('td', { className: 'border px-2 py-1', colSpan: 2 }, t('totalAmount')),
+                    React.createElement('td', { className: 'border px-2 py-1' }, total.toFixed(2)),
+                    React.createElement('td', { className: 'border px-2 py-1', colSpan: 2 }, '')
+                )
+            )
+        )
+    );
+}
+
+function PettyCashModal({ open, onClose, entries, entry, setEntry, editingIndex, onAdd, onUpdate, onEdit, onDelete, onCancel, categories, t }) {
+    React.useEffect(() => {
+        const handler = e => {
+            if (e.key === 'Escape') onClose();
+        };
+        if (open) document.addEventListener('keydown', handler);
+        return () => document.removeEventListener('keydown', handler);
+    }, [open]);
+
+    if (!open) return null;
+
+    return React.createElement('div', {
+        className: 'fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50',
+        onClick: e => { if (e.target === e.currentTarget) onClose(); }
+    },
+        React.createElement('div', { className: 'bg-white p-6 rounded w-full max-w-2xl petty-cash-modal' },
+            React.createElement('h3', { className: 'text-lg font-semibold mb-4' }, t('managePettyCashEntries')),
+            React.createElement(PettyCashEntryForm, {
+                entry: entry,
+                onChange: setEntry,
+                onSubmit: editingIndex >= 0 ? onUpdate : onAdd,
+                onCancel: onCancel,
+                isEditing: editingIndex >= 0,
+                categories: categories,
+                t: t
+            }),
+            React.createElement(PettyCashEntriesList, { entries: entries, onEdit: onEdit, onDelete: onDelete, categories: categories, t: t }),
+            React.createElement('div', { className: 'mt-4 text-right modal-actions' },
+                React.createElement('button', {
+                    type: 'button',
+                    onClick: onClose,
+                    className: 'bg-gray-500 text-white px-4 py-2 rounded'
+                }, t('close'))
+            )
+        )
+    );
+}
+
 function DailyEntryTab() {
+    const { t } = React.useContext(window.LanguageContext);
     const { state, setState } = React.useContext(window.AppContext);
     const [pinError, setPinError] = React.useState(false);
     const [pinAttempted, setPinAttempted] = React.useState(false);
+    const [employeeContext, setEmployeeContext] = React.useState(getCurrentEmployeeSession());
+
+    React.useEffect(() => {
+        initializeEmployeeContext();
+        setEmployeeContext(getCurrentEmployeeSession());
+    }, [state && state.employeeSession]);
     const [formData, setFormData] = React.useState({
         // Shawarma Stack Data (No carry forward - fresh daily, NO revenue field)
         shawarmaStack: {
@@ -105,28 +382,33 @@ function DailyEntryTab() {
             mayo_remaining: ''
         },
         
-        // Daily Sales (Simple - only 2 fields)
+        // Daily Sales
         sales: {
             total_revenue: '',
-            shawarma_revenue: ''
+            shawarma_revenue: '',
+            other_food_revenue: '',
+            petty_cash_total: ''
         },
 
-        // CRITICAL FIX: Add payment breakdown fields
         paymentBreakdown: {
             cash_sales: '',
             card_sales: '',
             delivery_aggregators: [],
-            cash_expenses: ''
+            aggregator_details: ''
         },
-
-        // CRITICAL FIX: Add petty cash entries
-        pettyCashEntries: [],
-
+        
         // Notes
         notes: ''
     });
     
     const [loading, setLoading] = React.useState(false);
+    const [aggregatorOptions, setAggregatorOptions] = React.useState([]);
+    const [paymentBreakdown, setPaymentBreakdown] = React.useState({
+        cash_sales: '',
+        card_sales: '',
+        delivery_aggregators: [],
+        aggregator_details: ''
+    });
     const [calculatedMetrics, setCalculatedMetrics] = React.useState(null);
     const [selectedDate, setSelectedDate] = React.useState(new Date().toISOString().split('T')[0]);
     const [existingEntry, setExistingEntry] = React.useState(null);
@@ -139,7 +421,179 @@ function DailyEntryTab() {
     const [fieldsLocked, setFieldsLocked] = React.useState(false);
     const [showLoadExistingPin, setShowLoadExistingPin] = React.useState(false);
     const [loadExistingPin, setLoadExistingPin] = React.useState('');
-    
+
+    // Petty cash state
+    const [pettyCashEntries, setPettyCashEntries] = React.useState([]);
+    const [showPettyCashModal, setShowPettyCashModal] = React.useState(false);
+    const [currentPettyCashEntry, setCurrentPettyCashEntry] = React.useState({
+        id: null,
+        category: '',
+        description: '',
+        amount: '',
+        paid_by: ''
+    });
+    const [editingEntryIndex, setEditingEntryIndex] = React.useState(-1);
+
+    const validateTranslations = () => {
+        const requiredKeys = [
+            'pettyCash', 'addPettyCashEntry', 'category', 'description', 'amount', 'paidBy',
+            'cashSales', 'cardSales', 'deliveryAggregator1', 'deliveryAggregator2', 'otherFoodRevenue',
+            'pettyCashTotal', 'selectCategory', 'fieldRequired', 'amountMustBePositive', 'confirmDeleteEntry'
+        ];
+        requiredKeys.forEach(key => {
+            if (!t(key) || t(key) === key) {
+                console.warn(`Missing translation for key: ${key}`);
+            }
+        });
+    };
+
+    const getAggregatorLabel = (index) => {
+        const fallbackKey = index === 0 ? 'deliveryAggregator1' : 'deliveryAggregator2';
+        return (aggregatorOptions[index] && aggregatorOptions[index].name) ? aggregatorOptions[index].name : t(fallbackKey);
+    };
+
+    const updateAggregatorAmount = (id, value) => {
+        const normalized = normalizeNumberInput(value);
+        setPaymentBreakdown(prev => ({
+            ...prev,
+            delivery_aggregators: (prev.delivery_aggregators || []).map(item =>
+                item.id === id ? { ...item, amount: normalized } : item
+            )
+        }));
+    };
+
+    const buildEmptyPaymentBreakdown = React.useCallback(() => ({
+        cash_sales: '',
+        card_sales: '',
+        delivery_aggregators: (aggregatorOptions || []).map(item => ({ ...item, amount: '' })),
+        aggregator_details: ''
+    }), [aggregatorOptions]);
+
+    const clearEntryValues = React.useCallback(() => {
+        setFormData(prev => ({
+            ...prev,
+            shawarmaStack: { starting_weight: '', remaining_weight: '', shaving_weight: '', staff_meals_weight: '', orders_weight: '' },
+            rawProteins: {
+                frozen_chicken_breast_opening: '', frozen_chicken_breast_received: '', frozen_chicken_breast_expired: '', frozen_chicken_breast_remaining: '',
+                chicken_shawarma_opening: '', chicken_shawarma_received: '', chicken_shawarma_expired: '', chicken_shawarma_remaining: '',
+                steak_opening: '', steak_received: '', steak_expired: '', steak_remaining: ''
+            },
+            marinatedProteins: {
+                fahita_chicken_opening: '', fahita_chicken_received: '', fahita_chicken_expired: '', fahita_chicken_remaining: '',
+                chicken_sub_opening: '', chicken_sub_received: '', chicken_sub_expired: '', chicken_sub_remaining: '',
+                spicy_strips_opening: '', spicy_strips_received: '', spicy_strips_expired: '', spicy_strips_remaining: '',
+                original_strips_opening: '', original_strips_received: '', original_strips_expired: '', original_strips_remaining: '',
+                marinated_steak_opening: '', marinated_steak_received: '', marinated_steak_expired: '', marinated_steak_remaining: ''
+            },
+            bread: {
+                saj_bread_opening: '', saj_bread_received: '', saj_bread_expired: '', saj_bread_remaining: '',
+                pita_bread_opening: '', pita_bread_received: '', pita_bread_expired: '', pita_bread_remaining: '',
+                bread_rolls_opening: '', bread_rolls_received: '', bread_rolls_expired: '', bread_rolls_remaining: ''
+            },
+            highCostItems: {
+                cream_opening: '', cream_received: '', cream_expired: '', cream_remaining: '',
+                mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
+            },
+            sales: {
+                total_revenue: '', shawarma_revenue: '', other_food_revenue: '', petty_cash_total: ''
+            }
+        }));
+        setPaymentBreakdown(buildEmptyPaymentBreakdown());
+        setPettyCashEntries([]);
+    }, [buildEmptyPaymentBreakdown]);
+
+    React.useEffect(() => {
+        validateTranslations();
+    }, []);
+
+    React.useEffect(() => {
+        const applyAggregators = (list) => {
+            const active = (list || []).filter(item => item.active !== false);
+            setAggregatorOptions(active);
+            setPaymentBreakdown(prev => {
+                const existing = prev.delivery_aggregators || [];
+                const mapped = active.map(option => {
+                    const matched = existing.find(item => item.id === option.id || item.name === option.name);
+                    return { ...option, amount: matched ? matched.amount || '' : '' };
+                });
+                const hasExistingAmounts = mapped.some(item => item.amount && String(item.amount).trim() !== '');
+
+                return {
+                    ...prev,
+                    delivery_aggregators: mapped.length ? mapped : active.map(item => ({ ...item, amount: '' })),
+                    aggregator_details: hasExistingAmounts ? (prev.aggregator_details || '') : ''
+                };
+            });
+        };
+
+        google.script.run
+            .withSuccessHandler(result => {
+                try {
+                    const parsed = Array.isArray(result)
+                        ? result
+                        : (typeof result === 'string' && result.trim())
+                            ? JSON.parse(result)
+                            : [];
+                    applyAggregators(parsed);
+                } catch (error) {
+                    console.error('Failed to parse aggregator settings', error);
+                    applyAggregators([]);
+                }
+            })
+            .withFailureHandler(err => {
+                console.error('Failed to load aggregators', err);
+                applyAggregators([]);
+            })
+            .getAggregatorSettings(false);
+    }, []);
+
+    const INVENTORY_CONFIG = {
+        rawProteins: {
+            titleKey: 'Frozen Raw Proteins',
+            items: [
+                { key: 'frozen_chicken_breast', label: 'Frozen Chicken Breast', item_id: null },
+                { key: 'chicken_shawarma', label: 'Chicken Shawarma', item_id: null },
+                { key: 'steak', label: 'Steak', item_id: null }
+            ]
+        },
+        marinatedProteins: {
+            titleKey: 'Marinated Proteins',
+            items: [
+                { key: 'fahita_chicken', label: 'Fahita Chicken', item_id: null },
+                { key: 'chicken_sub', label: 'Chicken Sub', item_id: null },
+                { key: 'spicy_strips', label: 'Spicy Strips', item_id: null },
+                { key: 'original_strips', label: 'Original Strips', item_id: null },
+                { key: 'marinated_steak', label: 'Marinated Steak', item_id: null }
+            ]
+        },
+        bread: {
+            titleKey: 'Bread Items',
+            items: [
+                { key: 'saj_bread', label: 'Saj Bread (0.9 QAR each)', item_id: null },
+                { key: 'pita_bread', label: 'Pita Bread (0.1 QAR each)', item_id: null },
+                { key: 'bread_rolls', label: 'Bread Rolls (0.5 QAR each)', item_id: null }
+            ]
+        },
+        highCostItems: {
+            titleKey: 'High-Cost Items',
+            items: [
+                { key: 'cream', label: 'Cream (20 QAR/kg)', item_id: null },
+                { key: 'mayo', label: 'Mayo (17.5 QAR/kg)', item_id: null }
+            ]
+        }
+    };
+
+    const PETTY_CASH_CATEGORIES = [
+        { key: 'fuel', label: 'Fuel' },
+        { key: 'ingredients', label: 'Ingredients' },
+        { key: 'supplies', label: 'Supplies' },
+        { key: 'equipment', label: 'Equipment' },
+        { key: 'utilities', label: 'Utilities' },
+        { key: 'maintenance', label: 'Maintenance' },
+        { key: 'transportation', label: 'Transportation' },
+        { key: 'other', label: 'Other' }
+    ];
+
     // NEW: Dynamic range calculation functions
     const getAcceptableRemainingRange = (stackWeightKg) => {
         return {
@@ -187,6 +641,29 @@ function DailyEntryTab() {
             loadPreviousDayData();
         }
     }, [checkingExistingData, duplicateWarning, selectedDate]);
+
+    const loadItemMappings = () => {
+        try {
+            google.script.run
+                .withSuccessHandler(mappings => {
+                    Object.values(INVENTORY_CONFIG).forEach(section => {
+                        section.items.forEach(item => {
+                            if (mappings[item.key]) {
+                                item.item_id = mappings[item.key];
+                            }
+                        });
+                    });
+                })
+                .withFailureHandler(err => console.error('Error loading item mappings', err))
+                .getAllLegacyKeyMappings();
+        } catch (err) {
+            console.error('Error loading item mappings', err);
+        }
+    };
+
+    React.useEffect(() => {
+        loadItemMappings();
+    }, []);
     
     const checkExistingEntry = async () => {
         setCheckingExistingData(true);
@@ -212,6 +689,7 @@ function DailyEntryTab() {
                         setDuplicateWarning(true);
                         setFieldsLocked(true);
                         setShowLoadExistingPin(true);
+                        clearEntryValues();
                     } else {
                         resetFormToClean();
                     }
@@ -432,11 +910,12 @@ function DailyEntryTab() {
     };
     
     const handleInputChange = (section, field, value) => {
+        const normalized = normalizeNumberInput(value);
         setFormData(prev => ({
             ...prev,
             [section]: {
                 ...prev[section],
-                [field]: value
+                [field]: normalized
             }
         }));
     };
@@ -453,7 +932,7 @@ function DailyEntryTab() {
         // Validate PIN if updating
         if (isUpdateMode && showPinInput) {
             if (!managementPin || managementPin.trim() === '') {
-                alert('Please enter management PIN');
+                alert(t('enterManagementPin'));
                 return;
             }
         }
@@ -463,41 +942,68 @@ function DailyEntryTab() {
         try {
             // Prepare data for backend
             const inventory = {
-                chicken_breast_remaining: formData.rawProteins.frozen_chicken_breast_remaining,
+                chicken_breast_opening: formData.rawProteins.frozen_chicken_breast_opening,
                 chicken_breast_received: formData.rawProteins.frozen_chicken_breast_received,
-                chicken_shawarma_remaining: formData.rawProteins.chicken_shawarma_remaining,
+                chicken_breast_expired: formData.rawProteins.frozen_chicken_breast_expired,
+                chicken_breast_remaining: formData.rawProteins.frozen_chicken_breast_remaining,
+                chicken_shawarma_opening: formData.rawProteins.chicken_shawarma_opening,
                 chicken_shawarma_received: formData.rawProteins.chicken_shawarma_received,
-                steak_remaining: formData.rawProteins.steak_remaining,
+                chicken_shawarma_expired: formData.rawProteins.chicken_shawarma_expired,
+                chicken_shawarma_remaining: formData.rawProteins.chicken_shawarma_remaining,
+                steak_opening: formData.rawProteins.steak_opening,
                 steak_received: formData.rawProteins.steak_received,
+                steak_expired: formData.rawProteins.steak_expired,
+                steak_remaining: formData.rawProteins.steak_remaining,
 
                 // Marinated proteins
-                fahita_chicken_remaining: formData.marinatedProteins.fahita_chicken_remaining,
+                fahita_chicken_opening: formData.marinatedProteins.fahita_chicken_opening,
                 fahita_chicken_received: formData.marinatedProteins.fahita_chicken_received,
-                chicken_sub_remaining: formData.marinatedProteins.chicken_sub_remaining,
+                fahita_chicken_expired: formData.marinatedProteins.fahita_chicken_expired,
+                fahita_chicken_remaining: formData.marinatedProteins.fahita_chicken_remaining,
+                chicken_sub_opening: formData.marinatedProteins.chicken_sub_opening,
                 chicken_sub_received: formData.marinatedProteins.chicken_sub_received,
-                spicy_strips_remaining: formData.marinatedProteins.spicy_strips_remaining,
+                chicken_sub_expired: formData.marinatedProteins.chicken_sub_expired,
+                chicken_sub_remaining: formData.marinatedProteins.chicken_sub_remaining,
+                spicy_strips_opening: formData.marinatedProteins.spicy_strips_opening,
                 spicy_strips_received: formData.marinatedProteins.spicy_strips_received,
-                original_strips_remaining: formData.marinatedProteins.original_strips_remaining,
+                spicy_strips_expired: formData.marinatedProteins.spicy_strips_expired,
+                spicy_strips_remaining: formData.marinatedProteins.spicy_strips_remaining,
+                original_strips_opening: formData.marinatedProteins.original_strips_opening,
                 original_strips_received: formData.marinatedProteins.original_strips_received,
-    // ADD THESE LINES:
-    marinated_steak_remaining: formData.marinatedProteins.marinated_steak_remaining,
-    marinated_steak_received: formData.marinatedProteins.marinated_steak_received,
+                original_strips_expired: formData.marinatedProteins.original_strips_expired,
+                original_strips_remaining: formData.marinatedProteins.original_strips_remaining,
+                marinated_steak_opening: formData.marinatedProteins.marinated_steak_opening,
+                marinated_steak_received: formData.marinatedProteins.marinated_steak_received,
+                marinated_steak_expired: formData.marinatedProteins.marinated_steak_expired,
+                marinated_steak_remaining: formData.marinatedProteins.marinated_steak_remaining,
 
-                saj_bread_remaining: formData.bread.saj_bread_remaining,
+                saj_bread_opening: formData.bread.saj_bread_opening,
                 saj_bread_received: formData.bread.saj_bread_received,
-                pita_bread_remaining: formData.bread.pita_bread_remaining,
+                saj_bread_expired: formData.bread.saj_bread_expired,
+                saj_bread_remaining: formData.bread.saj_bread_remaining,
+                pita_bread_opening: formData.bread.pita_bread_opening,
                 pita_bread_received: formData.bread.pita_bread_received,
-                bread_roll_remaining: formData.bread.bread_rolls_remaining,
-                bread_roll_received: formData.bread.bread_rolls_received,
+                pita_bread_expired: formData.bread.pita_bread_expired,
+                pita_bread_remaining: formData.bread.pita_bread_remaining,
+                bread_rolls_opening: formData.bread.bread_rolls_opening,
+                bread_rolls_received: formData.bread.bread_rolls_received,
+                bread_rolls_expired: formData.bread.bread_rolls_expired,
+                bread_rolls_remaining: formData.bread.bread_rolls_remaining,
 
-                cream_remaining: formData.highCostItems.cream_remaining,
+                cream_opening: formData.highCostItems.cream_opening,
                 cream_received: formData.highCostItems.cream_received,
-                mayo_remaining: formData.highCostItems.mayo_remaining,
-                mayo_received: formData.highCostItems.mayo_received
+                cream_expired: formData.highCostItems.cream_expired,
+                cream_remaining: formData.highCostItems.cream_remaining,
+                mayo_opening: formData.highCostItems.mayo_opening,
+                mayo_received: formData.highCostItems.mayo_received,
+                mayo_expired: formData.highCostItems.mayo_expired,
+                mayo_remaining: formData.highCostItems.mayo_remaining
             };
 
             const entryData = {
                 date: selectedDate,
+                employeeId: getCurrentEmployeeSession().employee_id,
+                employeeName: getCurrentEmployeeSession().employee_name,
                 shawarmaStack: {
                     ...formData.shawarmaStack,
                     revenue: formData.sales.shawarma_revenue,
@@ -506,7 +1012,20 @@ function DailyEntryTab() {
                     total_waste_weight: calculatedMetrics && calculatedMetrics.shawarma ? calculatedMetrics.shawarma.totalWasteWeight : 0,
                     total_waste_percentage: calculatedMetrics && calculatedMetrics.shawarma ? calculatedMetrics.shawarma.totalWastePercentage : 0
                 },
-                sales: formData.sales,
+                sales: {
+                    ...formData.sales,
+                    cash_sales: paymentBreakdown.cash_sales,
+                    card_sales: paymentBreakdown.card_sales,
+                    delivery_aggregator_1: calculateDeliveryTotal(),
+                    delivery_aggregator_2: 0,
+                    other_food_revenue: calculateOtherFoodRevenue(),
+                    petty_cash_total: calculatePettyCashTotal()
+                },
+                paymentBreakdown: {
+                    ...paymentBreakdown,
+                    delivery_aggregators: paymentBreakdown.delivery_aggregators || []
+                },
+                pettyCashEntries: pettyCashEntries,
                 inventory: inventory,
                 notes: formData.notes,
                 isUpdate: isUpdateMode,
@@ -541,40 +1060,7 @@ function DailyEntryTab() {
     };
     
     const resetForm = () => {
-        setFormData({
-            shawarmaStack: {
-                starting_weight: '', remaining_weight: '', shaving_weight: '',
-                staff_meals_weight: '', orders_weight: ''
-            },
-            rawProteins: {
-                frozen_chicken_breast_opening: '', frozen_chicken_breast_received: '', 
-                frozen_chicken_breast_expired: '', frozen_chicken_breast_remaining: '',
-                chicken_shawarma_opening: '', chicken_shawarma_received: '', 
-                chicken_shawarma_expired: '', chicken_shawarma_remaining: '',
-                steak_opening: '', steak_received: '', steak_expired: '', steak_remaining: ''
-            },
-            marinatedProteins: {
-                fahita_chicken_opening: '', fahita_chicken_received: '', fahita_chicken_expired: '', fahita_chicken_remaining: '',
-                chicken_sub_opening: '', chicken_sub_received: '', chicken_sub_expired: '', chicken_sub_remaining: '',
-                spicy_strips_opening: '', spicy_strips_received: '', spicy_strips_expired: '', spicy_strips_remaining: '',
-                original_strips_opening: '', original_strips_received: '', original_strips_expired: '', original_strips_remaining: '',
-    // ADD THIS LINE:
-    marinated_steak_opening: '', marinated_steak_received: '', marinated_steak_expired: '', marinated_steak_remaining: ''
-            },
-            bread: {
-                saj_bread_opening: '', saj_bread_received: '', saj_bread_expired: '', saj_bread_remaining: '',
-                pita_bread_opening: '', pita_bread_received: '', pita_bread_expired: '', pita_bread_remaining: '',
-                bread_rolls_opening: '', bread_rolls_received: '', bread_rolls_expired: '', bread_rolls_remaining: ''
-            },
-            highCostItems: {
-                cream_opening: '', cream_received: '', cream_expired: '', cream_remaining: '',
-                mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
-            },
-            sales: {
-                total_revenue: '', shawarma_revenue: ''
-            },
-            notes: ''
-        });
+        clearEntryValues();
         setIsUpdateMode(false);
     };
     
@@ -602,12 +1088,19 @@ function DailyEntryTab() {
                         .withSuccessHandler(dataResult => {
                             try {
                                 const data = JSON.parse(dataResult);
-                                
+
                                 if (!data.dataFound) {
                                     resetFormToClean();
                                     return;
                                 }
-                                
+
+                                const inventoryData = data.inventory ? convertInventoryDataToNestedFormat(data.inventory) : {
+                                    rawProteins: data.rawProteins || {},
+                                    marinatedProteins: data.marinatedProteins || {},
+                                    bread: data.bread || {},
+                                    highCostItems: data.highCostItems || {}
+                                };
+
                                 // Load full data into form (ALL SECTIONS)
                                 setFormData(prev => ({
                                     ...prev,
@@ -620,85 +1113,107 @@ function DailyEntryTab() {
                                     },
                                     sales: {
                                         total_revenue: data.sales ? String(data.sales.total_revenue || '') : '',
-                                        shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : ''
+                                        shawarma_revenue: data.sales ? String(data.sales.shawarma_revenue || '') : '',
+                                        other_food_revenue: data.sales ? String(data.sales.other_food_revenue || '') : '',
+                                        petty_cash_total: data.sales ? String(data.sales.petty_cash_total || '') : ''
                                     },
-                                    // CRITICAL FIX: Load payment breakdown data
                                     paymentBreakdown: {
-                                        cash_sales: data.salesBreakdown ? String(data.salesBreakdown.cash_sales || '') : '',
-                                        card_sales: data.salesBreakdown ? String(data.salesBreakdown.card_sales || '') : '',
-                                        delivery_aggregators: data.salesBreakdown && data.salesBreakdown.aggregator_details ?
-                                            (typeof data.salesBreakdown.aggregator_details === 'string' ?
-                                                JSON.parse(data.salesBreakdown.aggregator_details) :
-                                                data.salesBreakdown.aggregator_details) :
-                                            [],
-                                        cash_expenses: data.salesBreakdown ? String(data.salesBreakdown.cash_expenses || '') : ''
+                                        cash_sales: data.salesBreakdown ? String(data.salesBreakdown.cash_sales || '') : (data.sales ? String(data.sales.cash_sales || '') : ''),
+                                        card_sales: data.salesBreakdown ? String(data.salesBreakdown.card_sales || '') : (data.sales ? String(data.sales.card_sales || '') : ''),
+                                        delivery_aggregators: (() => {
+                                            const parsed = (() => {
+                                                try {
+                                                    return data.salesBreakdown && data.salesBreakdown.aggregator_details ? JSON.parse(data.salesBreakdown.aggregator_details) : [];
+                                                } catch (error) {
+                                                    return [];
+                                                }
+                                            })();
+
+                                            const sourceAggregators = (aggregatorOptions && aggregatorOptions.length) ? aggregatorOptions : parsed;
+                                            let resolved = sourceAggregators.map(option => {
+                                                const matched = parsed.find(p => p.id === option.id || p.name === option.name);
+                                                return { ...option, amount: matched ? String(matched.amount || '') : '' };
+                                            });
+
+                                            if (!resolved.length && parsed.length) {
+                                                resolved = parsed.map(item => ({ ...item, amount: String(item.amount || '') }));
+                                            }
+
+                                            if (!resolved.length && data.sales && (data.sales.delivery_aggregator_1 || data.sales.delivery_sales)) {
+                                                const fallbackTotal = String(data.sales.delivery_aggregator_1 || data.sales.delivery_sales || '');
+                                                const baseOption = sourceAggregators[0] || { id: 'delivery_fallback', name: 'Delivery Aggregators' };
+                                                return [{ ...baseOption, amount: fallbackTotal }];
+                                            }
+
+                                            const emptyAggregators = buildEmptyPaymentBreakdown().delivery_aggregators;
+                                            return resolved.length ? resolved : emptyAggregators;
+                                        })(),
+                                        aggregator_details: data.salesBreakdown ? String(data.salesBreakdown.aggregator_details || '') : ''
                                     },
-                                    // CRITICAL FIX: Load petty cash entries
-                                    pettyCashEntries: data.pettyCashEntries || [],
                                     rawProteins: {
-                                        frozen_chicken_breast_opening: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_remaining || '') : '',
-                                        frozen_chicken_breast_received: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_received || '') : '',
-                                        frozen_chicken_breast_expired: '',
-                                        frozen_chicken_breast_remaining: data.rawProteins ? String(data.rawProteins.frozen_chicken_breast_remaining || '') : '',
-                                        chicken_shawarma_opening: data.rawProteins ? String(data.rawProteins.chicken_shawarma_remaining || '') : '',
-                                        chicken_shawarma_received: data.rawProteins ? String(data.rawProteins.chicken_shawarma_received || '') : '',
-                                        chicken_shawarma_expired: '',
-                                        chicken_shawarma_remaining: data.rawProteins ? String(data.rawProteins.chicken_shawarma_remaining || '') : '',
-                                        steak_opening: data.rawProteins ? String(data.rawProteins.steak_remaining || '') : '',
-                                        steak_received: data.rawProteins ? String(data.rawProteins.steak_received || '') : '',
-                                        steak_expired: '',
-                                        steak_remaining: data.rawProteins ? String(data.rawProteins.steak_remaining || '') : ''
+                                        frozen_chicken_breast_opening: String(inventoryData.rawProteins.frozen_chicken_breast_opening || ''),
+                                        frozen_chicken_breast_received: String(inventoryData.rawProteins.frozen_chicken_breast_received || ''),
+                                        frozen_chicken_breast_expired: String(inventoryData.rawProteins.frozen_chicken_breast_expired || ''),
+                                        frozen_chicken_breast_remaining: String(inventoryData.rawProteins.frozen_chicken_breast_remaining || ''),
+                                        chicken_shawarma_opening: String(inventoryData.rawProteins.chicken_shawarma_opening || ''),
+                                        chicken_shawarma_received: String(inventoryData.rawProteins.chicken_shawarma_received || ''),
+                                        chicken_shawarma_expired: String(inventoryData.rawProteins.chicken_shawarma_expired || ''),
+                                        chicken_shawarma_remaining: String(inventoryData.rawProteins.chicken_shawarma_remaining || ''),
+                                        steak_opening: String(inventoryData.rawProteins.steak_opening || ''),
+                                        steak_received: String(inventoryData.rawProteins.steak_received || ''),
+                                        steak_expired: String(inventoryData.rawProteins.steak_expired || ''),
+                                        steak_remaining: String(inventoryData.rawProteins.steak_remaining || '')
                                     },
                                     marinatedProteins: {
-                                        fahita_chicken_opening: data.marinatedProteins ? String(data.marinatedProteins.fahita_chicken_remaining || '') : '',
-                                        fahita_chicken_received: data.marinatedProteins ? String(data.marinatedProteins.fahita_chicken_received || '') : '',
-                                        fahita_chicken_expired: '',
-                                        fahita_chicken_remaining: data.marinatedProteins ? String(data.marinatedProteins.fahita_chicken_remaining || '') : '',
-                                        chicken_sub_opening: data.marinatedProteins ? String(data.marinatedProteins.chicken_sub_remaining || '') : '',
-                                        chicken_sub_received: data.marinatedProteins ? String(data.marinatedProteins.chicken_sub_received || '') : '',
-                                        chicken_sub_expired: '',
-                                        chicken_sub_remaining: data.marinatedProteins ? String(data.marinatedProteins.chicken_sub_remaining || '') : '',
-                                        spicy_strips_opening: data.marinatedProteins ? String(data.marinatedProteins.spicy_strips_remaining || '') : '',
-                                        spicy_strips_received: data.marinatedProteins ? String(data.marinatedProteins.spicy_strips_received || '') : '',
-                                        spicy_strips_expired: '',
-                                        spicy_strips_remaining: data.marinatedProteins ? String(data.marinatedProteins.spicy_strips_remaining || '') : '',
-                                        original_strips_opening: data.marinatedProteins ? String(data.marinatedProteins.original_strips_remaining || '') : '',
-                                        original_strips_received: data.marinatedProteins ? String(data.marinatedProteins.original_strips_received || '') : '',
-                                        original_strips_expired: '',
-                                        original_strips_remaining: data.marinatedProteins ? String(data.marinatedProteins.original_strips_remaining || '') : '',
-    // ADD THESE LINES:
-    marinated_steak_opening: data.marinatedProteins ? String(data.marinatedProteins.marinated_steak_opening || '') : '',
-    marinated_steak_received: data.marinatedProteins ? String(data.marinatedProteins.marinated_steak_received || '') : '',
-    marinated_steak_expired: data.marinatedProteins ? String(data.marinatedProteins.marinated_steak_expired || '') : '',
-    marinated_steak_remaining: data.marinatedProteins ? String(data.marinatedProteins.marinated_steak_remaining || '') : ''
+                                        fahita_chicken_opening: String(inventoryData.marinatedProteins.fahita_chicken_opening || ''),
+                                        fahita_chicken_received: String(inventoryData.marinatedProteins.fahita_chicken_received || ''),
+                                        fahita_chicken_expired: String(inventoryData.marinatedProteins.fahita_chicken_expired || ''),
+                                        fahita_chicken_remaining: String(inventoryData.marinatedProteins.fahita_chicken_remaining || ''),
+                                        chicken_sub_opening: String(inventoryData.marinatedProteins.chicken_sub_opening || ''),
+                                        chicken_sub_received: String(inventoryData.marinatedProteins.chicken_sub_received || ''),
+                                        chicken_sub_expired: String(inventoryData.marinatedProteins.chicken_sub_expired || ''),
+                                        chicken_sub_remaining: String(inventoryData.marinatedProteins.chicken_sub_remaining || ''),
+                                        spicy_strips_opening: String(inventoryData.marinatedProteins.spicy_strips_opening || ''),
+                                        spicy_strips_received: String(inventoryData.marinatedProteins.spicy_strips_received || ''),
+                                        spicy_strips_expired: String(inventoryData.marinatedProteins.spicy_strips_expired || ''),
+                                        spicy_strips_remaining: String(inventoryData.marinatedProteins.spicy_strips_remaining || ''),
+                    original_strips_opening: String(inventoryData.marinatedProteins.original_strips_opening || ''),
+                    original_strips_received: String(inventoryData.marinatedProteins.original_strips_received || ''),
+                    original_strips_expired: String(inventoryData.marinatedProteins.original_strips_expired || ''),
+                    original_strips_remaining: String(inventoryData.marinatedProteins.original_strips_remaining || ''),
+                    marinated_steak_opening: String(inventoryData.marinatedProteins.marinated_steak_opening || ''),
+                    marinated_steak_received: String(inventoryData.marinatedProteins.marinated_steak_received || ''),
+                    marinated_steak_expired: String(inventoryData.marinatedProteins.marinated_steak_expired || ''),
+                    marinated_steak_remaining: String(inventoryData.marinatedProteins.marinated_steak_remaining || '')
                                     },
                                     bread: {
-                                        saj_bread_opening: data.bread ? String(data.bread.saj_bread_remaining || '') : '',
-                                        saj_bread_received: data.bread ? String(data.bread.saj_bread_received || '') : '',
-                                        saj_bread_expired: '',
-                                        saj_bread_remaining: data.bread ? String(data.bread.saj_bread_remaining || '') : '',
-                                        pita_bread_opening: data.bread ? String(data.bread.pita_bread_remaining || '') : '',
-                                        pita_bread_received: data.bread ? String(data.bread.pita_bread_received || '') : '',
-                                        pita_bread_expired: '',
-                                        pita_bread_remaining: data.bread ? String(data.bread.pita_bread_remaining || '') : '',
-                                        bread_rolls_opening: data.bread ? String(data.bread.bread_rolls_remaining || '') : '',
-                                        bread_rolls_received: data.bread ? String(data.bread.bread_rolls_received || '') : '',
-                                        bread_rolls_expired: '',
-                                        bread_rolls_remaining: data.bread ? String(data.bread.bread_rolls_remaining || '') : ''
+                                        saj_bread_opening: String(inventoryData.bread.saj_bread_opening || ''),
+                                        saj_bread_received: String(inventoryData.bread.saj_bread_received || ''),
+                                        saj_bread_expired: String(inventoryData.bread.saj_bread_expired || ''),
+                                        saj_bread_remaining: String(inventoryData.bread.saj_bread_remaining || ''),
+                                        pita_bread_opening: String(inventoryData.bread.pita_bread_opening || ''),
+                                        pita_bread_received: String(inventoryData.bread.pita_bread_received || ''),
+                                        pita_bread_expired: String(inventoryData.bread.pita_bread_expired || ''),
+                    pita_bread_remaining: String(inventoryData.bread.pita_bread_remaining || ''),
+                    bread_rolls_opening: String(inventoryData.bread.bread_rolls_opening || ''),
+                    bread_rolls_received: String(inventoryData.bread.bread_rolls_received || ''),
+                    bread_rolls_expired: String(inventoryData.bread.bread_rolls_expired || ''),
+                    bread_rolls_remaining: String(inventoryData.bread.bread_rolls_remaining || '')
                                     },
                                     highCostItems: {
-                                        cream_opening: data.highCostItems ? String(data.highCostItems.cream_remaining || '') : '',
-                                        cream_received: data.highCostItems ? String(data.highCostItems.cream_received || '') : '',
-                                        cream_expired: '',
-                                        cream_remaining: data.highCostItems ? String(data.highCostItems.cream_remaining || '') : '',
-                                        mayo_opening: data.highCostItems ? String(data.highCostItems.mayo_remaining || '') : '',
-                                        mayo_received: data.highCostItems ? String(data.highCostItems.mayo_received || '') : '',
-                                        mayo_expired: '',
-                                        mayo_remaining: data.highCostItems ? String(data.highCostItems.mayo_remaining || '') : ''
+                                        cream_opening: String(inventoryData.highCostItems.cream_opening || ''),
+                    cream_received: String(inventoryData.highCostItems.cream_received || ''),
+                    cream_expired: String(inventoryData.highCostItems.cream_expired || ''),
+                    cream_remaining: String(inventoryData.highCostItems.cream_remaining || ''),
+                    mayo_opening: String(inventoryData.highCostItems.mayo_opening || ''),
+                    mayo_received: String(inventoryData.highCostItems.mayo_received || ''),
+                    mayo_expired: String(inventoryData.highCostItems.mayo_expired || ''),
+                    mayo_remaining: String(inventoryData.highCostItems.mayo_remaining || '')
                                     },
                                     notes: data.notes || ''
                                 }));
-                                
+                                setPettyCashEntries(data.pettyCashEntries || []);
+
                                 setFieldsLocked(false);
                                 setIsUpdateMode(true);
                                 setDuplicateWarning(false);
@@ -733,58 +1248,21 @@ function DailyEntryTab() {
         }
     };
 
+
     const resetFormToClean = () => {
-        setFormData({
-            shawarmaStack: {
-                starting_weight: '', remaining_weight: '', shaving_weight: '',
-                staff_meals_weight: '', orders_weight: ''
-            },
-            rawProteins: {
-                frozen_chicken_breast_opening: '', frozen_chicken_breast_received: '', 
-                frozen_chicken_breast_expired: '', frozen_chicken_breast_remaining: '',
-                chicken_shawarma_opening: '', chicken_shawarma_received: '', 
-                chicken_shawarma_expired: '', chicken_shawarma_remaining: '',
-                steak_opening: '', steak_received: '', steak_expired: '', steak_remaining: ''
-            },
-            marinatedProteins: {
-                fahita_chicken_opening: '', fahita_chicken_received: '', fahita_chicken_expired: '', fahita_chicken_remaining: '',
-                chicken_sub_opening: '', chicken_sub_received: '', chicken_sub_expired: '', chicken_sub_remaining: '',
-                spicy_strips_opening: '', spicy_strips_received: '', spicy_strips_expired: '', spicy_strips_remaining: '',
-                original_strips_opening: '', original_strips_received: '', original_strips_expired: '', original_strips_remaining: '',
-    // ADD THIS LINE:
-    marinated_steak_opening: '', marinated_steak_received: '', marinated_steak_expired: '', marinated_steak_remaining: ''
-            },
-            bread: {
-                saj_bread_opening: '', saj_bread_received: '', saj_bread_expired: '', saj_bread_remaining: '',
-                pita_bread_opening: '', pita_bread_received: '', pita_bread_expired: '', pita_bread_remaining: '',
-                bread_rolls_opening: '', bread_rolls_received: '', bread_rolls_expired: '', bread_rolls_remaining: ''
-            },
-            highCostItems: {
-                cream_opening: '', cream_received: '', cream_expired: '', cream_remaining: '',
-                mayo_opening: '', mayo_received: '', mayo_expired: '', mayo_remaining: ''
-            },
-            sales: {
-                total_revenue: '', shawarma_revenue: ''
-            },
-            paymentBreakdown: {
-                cash_sales: '',
-                card_sales: '',
-                delivery_aggregators: [],
-                cash_expenses: ''
-            },
-            pettyCashEntries: [],
-            notes: ''
-        });
+        clearEntryValues();
 
         setDuplicateWarning(false);
         setIsUpdateMode(false);
         setFieldsLocked(false);
+        setShowPinInput(false);
+        setManagementPin('');
         setShowLoadExistingPin(false);
         setLoadExistingPin('');
-        setLoadingExistingData(false);
         setPinError(false);
         setPinAttempted(false);
     };
+
     
     const cancelLoadExisting = () => {
         setShowLoadExistingPin(false);
@@ -796,6 +1274,69 @@ function DailyEntryTab() {
         setManagementPin('');
         setFieldsLocked(false);
     };
+
+    const calculateOtherFoodRevenue = () => {
+        const total = parseFloat(formData.sales.total_revenue) || 0;
+        const shawarma = parseFloat(formData.sales.shawarma_revenue) || 0;
+        return total - shawarma;
+    };
+
+    const calculatePettyCashTotal = () => {
+        return pettyCashEntries.reduce((sum, entry) => sum + (parseFloat(entry.amount) || 0), 0);
+    };
+
+    const calculateDeliveryTotal = () => {
+        return (paymentBreakdown.delivery_aggregators || []).reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+    };
+
+    const handleAddPettyCashEntry = () => {
+        const { category, description, amount, paid_by } = currentPettyCashEntry;
+        if (!category || !description || !amount || !paid_by) {
+            alert(t('fieldRequired'));
+            return;
+        }
+        if (parseFloat(amount) <= 0) {
+            alert(t('amountMustBePositive'));
+            return;
+        }
+        setPettyCashEntries([...pettyCashEntries, { ...currentPettyCashEntry, id: Date.now().toString() }]);
+        resetPettyCashForm();
+    };
+
+    const handleEditPettyCashEntry = (index) => {
+        setCurrentPettyCashEntry(pettyCashEntries[index]);
+        setEditingEntryIndex(index);
+    };
+
+    const handleUpdatePettyCashEntry = () => {
+        if (editingEntryIndex < 0) return;
+        const updated = [...pettyCashEntries];
+        updated[editingEntryIndex] = currentPettyCashEntry;
+        setPettyCashEntries(updated);
+        resetPettyCashForm();
+    };
+
+    const handleDeletePettyCashEntry = (index) => {
+        if (confirm(t('confirmDeleteEntry'))) {
+            setPettyCashEntries(pettyCashEntries.filter((_, i) => i !== index));
+        }
+    };
+
+    const handleCancelPettyCashEdit = () => {
+        resetPettyCashForm();
+    };
+
+    const resetPettyCashForm = () => {
+        setCurrentPettyCashEntry({ id: null, category: '', description: '', amount: '', paid_by: '' });
+        setEditingEntryIndex(-1);
+    };
+
+    React.useEffect(() => {
+        setFormData(prev => ({
+            ...prev,
+            sales: { ...prev.sales, petty_cash_total: String(calculatePettyCashTotal().toFixed(2)) }
+        }));
+    }, [pettyCashEntries]);
     
     const renderInventorySection = (title, sectionKey, items, unit, description) => {
         return React.createElement('div', {
@@ -911,13 +1452,30 @@ function DailyEntryTab() {
     return React.createElement('div', {
         className: 'max-w-6xl mx-auto space-y-6'
     },
+        React.createElement(PettyCashModal, {
+            open: showPettyCashModal,
+            onClose: () => { setShowPettyCashModal(false); handleCancelPettyCashEdit(); },
+            entries: pettyCashEntries,
+            entry: currentPettyCashEntry,
+            setEntry: setCurrentPettyCashEntry,
+            editingIndex: editingEntryIndex,
+            onAdd: handleAddPettyCashEntry,
+            onUpdate: handleUpdatePettyCashEntry,
+            onEdit: handleEditPettyCashEntry,
+            onDelete: handleDeletePettyCashEntry,
+            onCancel: handleCancelPettyCashEdit,
+            categories: PETTY_CASH_CATEGORIES,
+            t: t
+        }),
         React.createElement('div', {
             className: 'bg-white rounded-lg shadow p-6'
         },
             React.createElement('h2', {
                 className: 'text-2xl font-bold text-gray-800 mb-6'
             }, 'Daily Operations Entry'),
-            
+
+            React.createElement(EmployeeContextDisplay, { employee: employeeContext, t: t }),
+
             // Date Selection and Status
             React.createElement('div', {
                 className: 'mb-6 p-4 bg-blue-50 rounded-lg'
@@ -1331,11 +1889,13 @@ function DailyEntryTab() {
                         }, '(Carry forward from previous day)')
                     ),
                     
-                    renderInventorySection('Frozen Raw Proteins', 'rawProteins', [
-                        {key: 'frozen_chicken_breast', label: 'Frozen Chicken Breast'},
-                        {key: 'chicken_shawarma', label: 'Chicken Shawarma'},
-                        {key: 'steak', label: 'Steak'}
-                    ], 'kg', 'kg')
+                    renderInventorySection(
+                        INVENTORY_CONFIG.rawProteins.titleKey,
+                        'rawProteins',
+                        INVENTORY_CONFIG.rawProteins.items,
+                        'kg',
+                        'kg'
+                    )
                 ),
                 
                 // Marinated Proteins Section
@@ -1350,14 +1910,13 @@ function DailyEntryTab() {
                             className: 'ml-2 text-sm font-normal text-gray-600'
                         }, '(Carry forward from previous day)')
                     ),
-                      renderInventorySection('Marinated Proteins', 'marinatedProteins', [
-                        {key: 'fahita_chicken', label: 'Fahita Chicken'},
-                        {key: 'chicken_sub', label: 'Chicken Sub'},
-                        {key: 'spicy_strips', label: 'Spicy Strips'},
-                        {key: 'original_strips', label: 'Original Strips'},
-    // ADD THIS LINE:
-    {key: 'marinated_steak', label: 'Marinated Steak'}
-                    ], 'kg', 'kg')
+                    renderInventorySection(
+                        INVENTORY_CONFIG.marinatedProteins.titleKey,
+                        'marinatedProteins',
+                        INVENTORY_CONFIG.marinatedProteins.items,
+                        'kg',
+                        'kg'
+                    )
                 ),
                 
                 // Bread Section
@@ -1373,11 +1932,13 @@ function DailyEntryTab() {
                         }, '(Carry forward from previous day)')
                     ),
                     
-                    renderInventorySection('Bread Items', 'bread', [
-                        {key: 'saj_bread', label: 'Saj Bread (0.9 QAR each)'},
-                        {key: 'pita_bread', label: 'Pita Bread (0.1 QAR each)'},
-                        {key: 'bread_rolls', label: 'Bread Rolls (0.5 QAR each)'}
-                    ], 'pieces', 'pieces')
+                    renderInventorySection(
+                        INVENTORY_CONFIG.bread.titleKey,
+                        'bread',
+                        INVENTORY_CONFIG.bread.items,
+                        'pieces',
+                        'pieces'
+                    )
                 ),
                 
                 // High-Cost Items Section
@@ -1393,20 +1954,23 @@ function DailyEntryTab() {
                         }, '(Carry forward from previous day)')
                     ),
                     
-                    renderInventorySection('High-Cost Items', 'highCostItems', [
-                        {key: 'cream', label: 'Cream (20 QAR/kg)'},
-                        {key: 'mayo', label: 'Mayo (17.5 QAR/kg)'}
-                    ], 'kg', 'kg')
+                    renderInventorySection(
+                        INVENTORY_CONFIG.highCostItems.titleKey,
+                        'highCostItems',
+                        INVENTORY_CONFIG.highCostItems.items,
+                        'kg',
+                        'kg'
+                    )
                 ),
                 
                 // Sales Section
                 React.createElement('div', {
-                    className: 'border border-gray-200 rounded-lg p-6'
+                    className: 'border border-gray-200 rounded-lg p-6 sales-breakdown'
                 },
                     React.createElement('h3', {
                         className: 'text-lg font-semibold text-gray-800 mb-4 flex items-center'
                     },
-                        React.createElement('span', null, '💵 Daily Sales'),
+                        React.createElement('span', null, '💵 ' + t('dailySales')),
                         React.createElement('span', {
                             className: 'ml-2 text-sm font-normal text-gray-600'
                         }, '(Includes shawarma revenue for calculations)')
@@ -1415,10 +1979,9 @@ function DailyEntryTab() {
                     React.createElement('div', {
                         className: 'grid grid-cols-1 md:grid-cols-2 gap-4'
                     },
+                        // Total revenue
                         React.createElement('div', null,
-                            React.createElement('label', {
-                                className: 'block text-sm font-medium mb-1'
-                            }, 'Total Daily Revenue (QAR)'),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('totalDailyRevenue')),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1429,10 +1992,9 @@ function DailyEntryTab() {
                                 disabled: fieldsLocked
                             })
                         ),
+                        // Shawarma revenue
                         React.createElement('div', null,
-                            React.createElement('label', {
-                                className: 'block text-sm font-medium mb-1'
-                            }, 'Shawarma Revenue (QAR)'),
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('shawarmaRevenue')),
                             React.createElement('input', {
                                 type: 'number',
                                 step: '0.01',
@@ -1442,10 +2004,88 @@ function DailyEntryTab() {
                                 required: true,
                                 disabled: fieldsLocked
                             }),
-                            React.createElement('p', {
-                                className: 'text-xs text-gray-500 mt-1'
-                            }, 'Used for shawarma profitability calculations')
+                            React.createElement('p', { className: 'text-xs text-gray-500 mt-1' }, 'Used for shawarma profitability calculations')
+                        ),
+                        // Cash and card sales
+                        ['cash_sales', 'card_sales'].map(key => (
+                            React.createElement('div', { key },
+                                React.createElement('label', { className: 'block text-sm font-medium mb-1' },
+                                    key === 'cash_sales' ? t('cashSales') : t('cardSales')
+                                ),
+                                React.createElement('input', {
+                                    type: 'number',
+                                    step: '0.01',
+                                    value: paymentBreakdown[key],
+                                    onChange: e => setPaymentBreakdown(prev => ({ ...prev, [key]: normalizeNumberInput(e.target.value) })),
+                                    className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                    disabled: fieldsLocked
+                                })
+                            )
+                        )),
+                        React.createElement('div', { className: 'md:col-span-2' },
+                            React.createElement('label', { className: 'block text-sm font-medium mb-2' }, 'Delivery Aggregators'),
+                            React.createElement('div', { className: 'space-y-2' },
+                                (paymentBreakdown.delivery_aggregators || []).map(item => (
+                                    React.createElement('div', { key: item.id, className: 'border rounded p-3 bg-white shadow-sm flex items-center justify-between' },
+                                        React.createElement('p', { className: 'text-sm font-medium text-gray-800 mb-1 md:mb-0' }, item.name || 'Aggregator'),
+                                        React.createElement('div', { className: 'w-32' },
+                                            React.createElement('input', {
+                                                type: 'number',
+                                                step: '0.01',
+                                                value: item.amount,
+                                                onChange: e => updateAggregatorAmount(item.id, e.target.value),
+                                                className: 'w-full p-2 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                                disabled: fieldsLocked
+                                            })
+                                        )
+                                    )
+                                ))
+                            )
+                        ),
+                        React.createElement('div', { className: 'md:col-span-2' },
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, 'Aggregator Notes'),
+                            React.createElement('textarea', {
+                                value: paymentBreakdown.aggregator_details,
+                                onChange: e => setPaymentBreakdown(prev => ({ ...prev, aggregator_details: e.target.value })),
+                                className: 'w-full p-3 border rounded focus:ring-2 focus:ring-olive-500' + (fieldsLocked ? ' bg-gray-100' : ''),
+                                rows: '2',
+                                placeholder: 'e.g., Talabat 1200, Snoonu 900',
+                                disabled: fieldsLocked
+                            })
+                        ),
+                        // Other food revenue (read-only)
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('otherFoodRevenue')),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: calculateOtherFoodRevenue().toFixed(2),
+                                readOnly: true,
+                                className: 'w-full p-2 border rounded bg-gray-100',
+                                disabled: true
+                            })
+                        ),
+                        // Petty cash total (read-only)
+                        React.createElement('div', null,
+                            React.createElement('label', { className: 'block text-sm font-medium mb-1' }, t('pettyCashTotal')),
+                            React.createElement('input', {
+                                type: 'number',
+                                step: '0.01',
+                                value: calculatePettyCashTotal().toFixed(2),
+                                readOnly: true,
+                                className: 'w-full p-2 border rounded bg-gray-100',
+                                disabled: true
+                            })
                         )
+                    ),
+
+                    React.createElement('div', { className: 'mt-4' },
+                        React.createElement('button', {
+                            type: 'button',
+                            className: 'bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50',
+                            onClick: () => setShowPettyCashModal(true),
+                            disabled: fieldsLocked
+                        }, t('pettyCash') + ': ' + calculatePettyCashTotal().toFixed(2) + ' QAR (' + pettyCashEntries.length + ' ' + t('entries') + ')')
                     ),
                     
                     // Sales Metrics Display
