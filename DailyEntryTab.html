@@ -1101,6 +1101,40 @@ function DailyEntryTab() {
                                     highCostItems: data.highCostItems || {}
                                 };
 
+                                const loadedPaymentBreakdown = {
+                                    cash_sales: data.salesBreakdown ? String(data.salesBreakdown.cash_sales || '') : (data.sales ? String(data.sales.cash_sales || '') : ''),
+                                    card_sales: data.salesBreakdown ? String(data.salesBreakdown.card_sales || '') : (data.sales ? String(data.sales.card_sales || '') : ''),
+                                    delivery_aggregators: (() => {
+                                        const parsed = (() => {
+                                            try {
+                                                return data.salesBreakdown && data.salesBreakdown.aggregator_details ? JSON.parse(data.salesBreakdown.aggregator_details) : [];
+                                            } catch (error) {
+                                                return [];
+                                            }
+                                        })();
+
+                                        const sourceAggregators = (aggregatorOptions && aggregatorOptions.length) ? aggregatorOptions : parsed;
+                                        let resolved = sourceAggregators.map(option => {
+                                            const matched = parsed.find(p => p.id === option.id || p.name === option.name);
+                                            return { ...option, amount: matched ? String(matched.amount || '') : '' };
+                                        });
+
+                                        if (!resolved.length && parsed.length) {
+                                            resolved = parsed.map(item => ({ ...item, amount: String(item.amount || '') }));
+                                        }
+
+                                        if (!resolved.length && data.sales && (data.sales.delivery_aggregator_1 || data.sales.delivery_sales)) {
+                                            const fallbackTotal = String(data.sales.delivery_aggregator_1 || data.sales.delivery_sales || '');
+                                            const baseOption = sourceAggregators[0] || { id: 'delivery_fallback', name: 'Delivery Aggregators' };
+                                            return [{ ...baseOption, amount: fallbackTotal }];
+                                        }
+
+                                        const emptyAggregators = buildEmptyPaymentBreakdown().delivery_aggregators;
+                                        return resolved.length ? resolved : emptyAggregators;
+                                    })(),
+                                    aggregator_details: data.salesBreakdown ? String(data.salesBreakdown.aggregator_details || '') : ''
+                                };
+
                                 // Load full data into form (ALL SECTIONS)
                                 setFormData(prev => ({
                                     ...prev,
@@ -1117,39 +1151,7 @@ function DailyEntryTab() {
                                         other_food_revenue: data.sales ? String(data.sales.other_food_revenue || '') : '',
                                         petty_cash_total: data.sales ? String(data.sales.petty_cash_total || '') : ''
                                     },
-                                    paymentBreakdown: {
-                                        cash_sales: data.salesBreakdown ? String(data.salesBreakdown.cash_sales || '') : (data.sales ? String(data.sales.cash_sales || '') : ''),
-                                        card_sales: data.salesBreakdown ? String(data.salesBreakdown.card_sales || '') : (data.sales ? String(data.sales.card_sales || '') : ''),
-                                        delivery_aggregators: (() => {
-                                            const parsed = (() => {
-                                                try {
-                                                    return data.salesBreakdown && data.salesBreakdown.aggregator_details ? JSON.parse(data.salesBreakdown.aggregator_details) : [];
-                                                } catch (error) {
-                                                    return [];
-                                                }
-                                            })();
-
-                                            const sourceAggregators = (aggregatorOptions && aggregatorOptions.length) ? aggregatorOptions : parsed;
-                                            let resolved = sourceAggregators.map(option => {
-                                                const matched = parsed.find(p => p.id === option.id || p.name === option.name);
-                                                return { ...option, amount: matched ? String(matched.amount || '') : '' };
-                                            });
-
-                                            if (!resolved.length && parsed.length) {
-                                                resolved = parsed.map(item => ({ ...item, amount: String(item.amount || '') }));
-                                            }
-
-                                            if (!resolved.length && data.sales && (data.sales.delivery_aggregator_1 || data.sales.delivery_sales)) {
-                                                const fallbackTotal = String(data.sales.delivery_aggregator_1 || data.sales.delivery_sales || '');
-                                                const baseOption = sourceAggregators[0] || { id: 'delivery_fallback', name: 'Delivery Aggregators' };
-                                                return [{ ...baseOption, amount: fallbackTotal }];
-                                            }
-
-                                            const emptyAggregators = buildEmptyPaymentBreakdown().delivery_aggregators;
-                                            return resolved.length ? resolved : emptyAggregators;
-                                        })(),
-                                        aggregator_details: data.salesBreakdown ? String(data.salesBreakdown.aggregator_details || '') : ''
-                                    },
+                                    paymentBreakdown: loadedPaymentBreakdown,
                                     rawProteins: {
                                         frozen_chicken_breast_opening: String(inventoryData.rawProteins.frozen_chicken_breast_opening || ''),
                                         frozen_chicken_breast_received: String(inventoryData.rawProteins.frozen_chicken_breast_received || ''),
@@ -1212,6 +1214,7 @@ function DailyEntryTab() {
                                     },
                                     notes: data.notes || ''
                                 }));
+                                setPaymentBreakdown(loadedPaymentBreakdown);
                                 setPettyCashEntries(data.pettyCashEntries || []);
 
                                 setFieldsLocked(false);
