@@ -812,6 +812,41 @@ function BilingualEmployeeDailyEntryTab(props) {
                                     notes: data.notes || ''
                                 });
                                 setPettyCashEntries(data.pettyCashEntries || []);
+
+                                // CRITICAL FIX: Sync paymentBreakdown to separate state (UI reads from this)
+                                setPaymentBreakdown({
+                                    cash_sales: data.salesBreakdown ? String(data.salesBreakdown.cash_sales || '') : (data.sales ? String(data.sales.cash_sales || '') : ''),
+                                    card_sales: data.salesBreakdown ? String(data.salesBreakdown.card_sales || '') : (data.sales ? String(data.sales.card_sales || '') : ''),
+                                    delivery_aggregators: (() => {
+                                        const parsed = (() => {
+                                            try {
+                                                return data.salesBreakdown && data.salesBreakdown.aggregator_details ? JSON.parse(data.salesBreakdown.aggregator_details) : [];
+                                            } catch (error) {
+                                                return [];
+                                            }
+                                        })();
+
+                                        const sourceAggregators = (aggregatorOptions && aggregatorOptions.length) ? aggregatorOptions : parsed;
+                                        let resolved = sourceAggregators.map(option => {
+                                            const matched = parsed.find(p => p.id === option.id || p.name === option.name);
+                                            return { ...option, amount: matched ? String(matched.amount || '') : '' };
+                                        });
+
+                                        if (!resolved.length && parsed.length) {
+                                            resolved = parsed.map(item => ({ ...item, amount: String(item.amount || '') }));
+                                        }
+
+                                        if (!resolved.length && data.sales && (data.sales.delivery_aggregator_1 || data.sales.delivery_sales)) {
+                                            const fallbackTotal = String(data.sales.delivery_aggregator_1 || data.sales.delivery_sales || '');
+                                            const baseOption = sourceAggregators[0] || { id: 'delivery_fallback', name: 'Delivery Aggregators' };
+                                            return [{ ...baseOption, amount: fallbackTotal }];
+                                        }
+
+                                        const emptyAggregators = buildEmptyPaymentBreakdown().delivery_aggregators;
+                                        return resolved.length ? resolved : emptyAggregators;
+                                    })(),
+                                    aggregator_details: data.salesBreakdown ? String(data.salesBreakdown.aggregator_details || '') : ''
+                                });
                             }
 
                             setFieldsLocked(false);
