@@ -1590,30 +1590,18 @@ function generateReportFromNewTables(targetDateString) {
 
     const todaySnapshot = Array.isArray(snapshotData) ? snapshotData.filter(row => row.date && new Date(row.date).toDateString() === targetDateString) : [];
 
-    // Try SnapshotLog first (post-migration), fallback to old tables (pre-migration)
-    let rawProteins = null;
-    let marinatedProteins = null;
-    let bread = null;
-    let highCostItems = null;
+    // ALWAYS read from old inventory tables (they have all 4 fields: opening, received, expired, remaining)
+    // SnapshotLog only has closing_quantity (remaining) - not enough for the form
+    const dataMode = (MIGRATION_CONFIG.dualWriteMode && DATA_NAMESPACE) ? 'base' : 'namespaced';
+    const rawProteinsData = getSheetDataByMode('DailyRawProteins', dataMode);
+    const marinatedProteinsData = getSheetDataByMode('DailyMarinatedProteins', dataMode);
+    const breadData = getSheetDataByMode('DailyBreadTracking', dataMode);
+    const highCostData = getSheetDataByMode('DailyHighCostItems', dataMode);
 
-    if (todaySnapshot.length > 0) {
-      // Post-migration: Use SnapshotLog (only has remaining quantities)
-      const inventoryData = mapSnapshotLogToFormFormat(todaySnapshot);
-      // Note: SnapshotLog only has _remaining fields, not opening/received/expired
-      // This will need enhancement post-migration
-    } else {
-      // Pre-migration: Read from old inventory tables
-      const dataMode = (MIGRATION_CONFIG.dualWriteMode && DATA_NAMESPACE) ? 'base' : 'namespaced';
-      const rawProteinsData = getSheetDataByMode('DailyRawProteins', dataMode);
-      const marinatedProteinsData = getSheetDataByMode('DailyMarinatedProteins', dataMode);
-      const breadData = getSheetDataByMode('DailyBreadTracking', dataMode);
-      const highCostData = getSheetDataByMode('DailyHighCostItems', dataMode);
-
-      rawProteins = rawProteinsData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
-      marinatedProteins = marinatedProteinsData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
-      bread = breadData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
-      highCostItems = highCostData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
-    }
+    const rawProteins = rawProteinsData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
+    const marinatedProteins = marinatedProteinsData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
+    const bread = breadData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
+    const highCostItems = highCostData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
 
     return {
       date: targetDateString,
