@@ -207,6 +207,15 @@ const REQUIRED_SHEETS = {
       'payment_terms', 'active', 'created_at', 'updated_at'
     ]
   },
+
+  InventoryVarianceLog: {
+    requiredHeaders: [
+      'id', 'variance_date', 'item_id', 'opening_quantity', 'received_quantity',
+      'closing_quantity', 'actual_usage', 'theoretical_usage', 'variance',
+      'variance_percentage', 'cost_impact', 'variance_status', 'calculation_status',
+      'employee_id', 'created_at', 'updated_at'
+    ]
+  },
   
   SystemSettings: {
     requiredHeaders: [
@@ -961,7 +970,7 @@ function saveDailyEntryToNewTables(entryData) {
   }
 
   if (entryData.rawProteins || entryData.marinatedProteins || entryData.bread || entryData.highCostItems) {
-    saveInventorySnapshots(entryData, entryDate, employeeId);
+    saveInventoryDataToNewTables(entryData, entryDate, employeeId);
   }
 
   let dailySalesId = null;
@@ -972,12 +981,6 @@ function saveDailyEntryToNewTables(entryData) {
   if (entryData.pettyCashEntries && entryData.pettyCashEntries.length && dailySalesId) {
     savePettyCashDetails(entryData.pettyCashEntries, dailySalesId, employeeId);
   }
-  try {
-    calculateInventoryVariance(entryDate, employeeId, { trigger: 'daily_entry' });
-  } catch (err) {
-    console.error('Variance calculation failed: ' + err.message);
-  }
-
   return { success: true, method: 'new_tables' };
 }
 
@@ -1249,7 +1252,7 @@ function saveEnhancedSalesData(entryData, entryDate, employeeId, options = {}) {
   return null;
 }
 
-function saveInventorySnapshots(entryData, entryDate, employeeId) {
+function saveInventoryDataToNewTables(entryData, entryDate, employeeId) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const legacyData = {
     rawProteins: entryData.rawProteins || {},
@@ -1257,6 +1260,7 @@ function saveInventorySnapshots(entryData, entryDate, employeeId) {
     bread: entryData.bread || {},
     highCostItems: entryData.highCostItems || {}
   };
+
   const snapshotEntries = mapLegacyInventoryToSnapshotLog(legacyData, employeeId, entryDate);
   if (snapshotEntries.length > 0) {
     const snapshotSheet = ss.getSheetByName('SnapshotLog');
@@ -1271,8 +1275,77 @@ function saveInventorySnapshots(entryData, entryDate, employeeId) {
         entry.created_at,
         entry.updated_at
       ];
-      snapshotSheet.appendRow(row);
+      appendRowSafe(snapshotSheet, row);
     });
+  }
+
+  const purchaseEntries = mapLegacyInventoryToPurchaseLog(legacyData, employeeId, entryDate);
+  if (purchaseEntries.length > 0) {
+    const purchaseSheet = ss.getSheetByName('PurchaseLog');
+    if (purchaseSheet) {
+      const existingPurchases = getSheetData('PurchaseLog');
+      purchaseEntries.forEach(function(entry) {
+        const alreadyLogged = existingPurchases.some(p =>
+          p.item_id == entry.item_id &&
+          new Date(p.delivery_date).toDateString() === new Date(entry.delivery_date).toDateString() &&
+          (p.notes || '').indexOf('Auto-generated from daily entry') !== -1
+        );
+        if (!alreadyLogged) {
+          appendRowSafe(purchaseSheet, [
+            entry.id,
+            entry.supplier_id,
+            entry.invoice_number,
+            entry.delivery_date,
+            entry.received_by,
+            entry.item_id,
+            entry.quantity,
+            entry.cost_per_unit,
+            entry.total_cost,
+            entry.quality,
+            entry.notes,
+            entry.created_at,
+            entry.updated_at
+          ]);
+        }
+      });
+    }
+  }
+
+  const wasteEntries = mapLegacyInventoryToWasteLog(legacyData, employeeId, entryDate);
+  if (wasteEntries.length > 0) {
+    const wasteSheet = ss.getSheetByName('WasteLog');
+    if (wasteSheet) {
+      const existingWaste = getSheetData('WasteLog');
+      wasteEntries.forEach(function(entry) {
+        const alreadyLogged = existingWaste.some(w =>
+          w.item_id == entry.item_id &&
+          new Date(w.date).toDateString() === new Date(entry.date).toDateString() &&
+          (w.notes || '').indexOf('Auto-generated from daily entry') !== -1
+        );
+        if (!alreadyLogged) {
+          appendRowSafe(wasteSheet, [
+            entry.id,
+            entry.item_id,
+            entry.waste_quantity,
+            entry.reason,
+            entry.date,
+            entry.notes,
+            entry.cost_override,
+            entry.estimated_cost,
+            entry.employee_id,
+            entry.created_at,
+            entry.updated_at
+          ]);
+        }
+      });
+    }
+  }
+
+  try {
+    const varianceData = calculateInventoryVariance(entryDate, employeeId, { trigger: 'daily_entry' });
+    recordInventoryVarianceLog(varianceData);
+  } catch (err) {
+    console.error('Variance calculation failed: ' + err.message);
   }
 }
 
@@ -1345,6 +1418,9 @@ function generateReportFromNewTables(targetDateString) {
     const salesData = Array.isArray(getSheetData('DailySales')) ? getSheetData('DailySales') : [];
     const salesBreakdownData = Array.isArray(getSheetData('DailySalesBreakdown')) ? getSheetData('DailySalesBreakdown') : [];
     const snapshotData = Array.isArray(getSheetData('SnapshotLog')) ? getSheetData('SnapshotLog') : [];
+    const purchaseData = Array.isArray(getSheetData('PurchaseLog')) ? getSheetData('PurchaseLog') : [];
+    const wasteData = Array.isArray(getSheetData('WasteLog')) ? getSheetData('WasteLog') : [];
+    const varianceLog = Array.isArray(getSheetData('InventoryVarianceLog')) ? getSheetData('InventoryVarianceLog') : [];
 
     const todayShawarma = shawarmaData.find(row => row.date && new Date(row.date).toDateString() === targetDateString);
     const todaySales = salesData.find(row => row.sales_date && new Date(row.sales_date).toDateString() === targetDateString);
@@ -1364,6 +1440,9 @@ function generateReportFromNewTables(targetDateString) {
     }
 
     const todaySnapshot = Array.isArray(snapshotData) ? snapshotData.filter(row => row.date && new Date(row.date).toDateString() === targetDateString) : [];
+    const todayPurchases = Array.isArray(purchaseData) ? purchaseData.filter(row => row.delivery_date && new Date(row.delivery_date).toDateString() === targetDateString) : [];
+    const todayWaste = Array.isArray(wasteData) ? wasteData.filter(row => row.date && new Date(row.date).toDateString() === targetDateString) : [];
+    const todayVariance = Array.isArray(varianceLog) ? varianceLog.filter(row => row.variance_date && new Date(row.variance_date).toDateString() === targetDateString) : [];
 
     let inventoryData = null;
     if (todaySnapshot.length > 0) {
@@ -1372,11 +1451,14 @@ function generateReportFromNewTables(targetDateString) {
 
     return {
       date: targetDateString,
-      dataFound: !!(todayShawarma || todaySales || todaySnapshot.length > 0),
+      dataFound: !!(todayShawarma || todaySales || todaySnapshot.length > 0 || todayPurchases.length > 0 || todayWaste.length > 0 || todayVariance.length > 0),
       shawarma: todayShawarma || null,
       sales: todaySales || null,
       salesBreakdown: todayBreakdown,
       inventory: inventoryData,
+      purchases: todayPurchases,
+      waste: todayWaste,
+      inventoryVariance: todayVariance,
       pettyCashEntries: pettyCashEntries,
       notes: ''
     };
@@ -2291,6 +2373,86 @@ function mapLegacyInventoryToSnapshotLog(legacyData, employeeId, date) {
   return entries;
 }
 
+function mapLegacyInventoryToPurchaseLog(legacyData, employeeId, date) {
+  const mappings = getAllLegacyKeyMappings();
+  const items = getSheetData('Item');
+  const costMap = {};
+  items.forEach(function(it) { costMap[it.id] = Number(it.cost_per_unit) || 0; });
+
+  const entries = [];
+  const categories = ['rawProteins', 'marinatedProteins', 'bread', 'highCostItems'];
+  categories.forEach(function(cat) {
+    const group = legacyData[cat];
+    if (!group) return;
+    for (const key in group) {
+      if (group.hasOwnProperty(key) && /_received$/.test(key)) {
+        const qty = parseFloat(group[key]);
+        if (!qty || isNaN(qty) || qty <= 0) continue;
+        const legacyKey = key.replace('_received', '');
+        const itemId = mappings[legacyKey];
+        if (itemId) {
+          const costPerUnit = costMap[itemId] || 0;
+          entries.push({
+            id: Utilities.getUuid(),
+            supplier_id: 'AUTO',
+            invoice_number: `AUTO-${new Date(date).toISOString().split('T')[0]}`,
+            delivery_date: new Date(date),
+            received_by: employeeId,
+            item_id: itemId,
+            quantity: qty,
+            cost_per_unit: costPerUnit,
+            total_cost: qty * costPerUnit,
+            quality: 'Auto',
+            notes: 'Auto-generated from daily entry',
+            created_at: new Date(),
+            updated_at: new Date()
+          });
+        }
+      }
+    }
+  });
+  return entries;
+}
+
+function mapLegacyInventoryToWasteLog(legacyData, employeeId, date) {
+  const mappings = getAllLegacyKeyMappings();
+  const items = getSheetData('Item');
+  const costMap = {};
+  items.forEach(function(it) { costMap[it.id] = Number(it.cost_per_unit) || 0; });
+
+  const entries = [];
+  const categories = ['rawProteins', 'marinatedProteins', 'bread', 'highCostItems'];
+  categories.forEach(function(cat) {
+    const group = legacyData[cat];
+    if (!group) return;
+    for (const key in group) {
+      if (group.hasOwnProperty(key) && /_expired$/.test(key)) {
+        const qty = parseFloat(group[key]);
+        if (!qty || isNaN(qty) || qty <= 0) continue;
+        const legacyKey = key.replace('_expired', '');
+        const itemId = mappings[legacyKey];
+        if (itemId) {
+          const costPerUnit = costMap[itemId] || 0;
+          entries.push({
+            id: Utilities.getUuid(),
+            item_id: itemId,
+            waste_quantity: qty,
+            reason: 'Expired',
+            date: new Date(date),
+            notes: 'Auto-generated from daily entry',
+            cost_override: '',
+            estimated_cost: qty * costPerUnit,
+            employee_id: employeeId,
+            created_at: new Date(),
+            updated_at: new Date()
+          });
+        }
+      }
+    }
+  });
+  return entries;
+}
+
 function mapSnapshotLogToLegacyFormat(snapshotEntries) {
   const items = getSheetData('Item');
   const itemMap = {};
@@ -2862,7 +3024,7 @@ function runMigrationHealthCheck() {
 function validateDatabaseSchema() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const errors = [];
-  ['Item','SnapshotLog','PettyCashDetail'].forEach(tableName => {
+  ['Item','SnapshotLog','PettyCashDetail','PurchaseLog','WasteLog','InventoryVarianceLog'].forEach(tableName => {
     const sheet = ss.getSheetByName(tableName);
     if (!sheet) {
       errors.push(`Missing table: ${tableName}`);
@@ -2882,7 +3044,7 @@ function checkOldTablesExist() {
 
 function checkNewTablesExist() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  return ['Item','SnapshotLog','PettyCashDetail','DailySales'].every(name => ss.getSheetByName(name));
+  return ['Item','SnapshotLog','PettyCashDetail','DailySales','PurchaseLog','WasteLog','InventoryVarianceLog'].every(name => ss.getSheetByName(name));
 }
 
 function getOldTableRecordCounts() {
@@ -2896,7 +3058,7 @@ function getOldTableRecordCounts() {
 
 function getNewTableRecordCounts() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const tables = ['Item','SnapshotLog','PettyCashDetail','DailySales'];
+  const tables = ['Item','SnapshotLog','PettyCashDetail','DailySales','PurchaseLog','WasteLog','InventoryVarianceLog'];
   const counts = { total: 0 };
   tables.forEach(name => { const sheet = ss.getSheetByName(name); const count = sheet && sheet.getLastRow() > 1 ? sheet.getLastRow()-1 : 0; counts[name] = count; counts.total += count; });
   return counts;
@@ -3204,7 +3366,7 @@ function testFormCompatibility() { return { success: true, message: 'Form compat
 
 function deleteTestData(dateString) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheets = ['DailyShawarmaStack','SnapshotLog','DailySales','PettyCashDetail','DailyRawProteins','DailyMarinatedProteins','DailyBreadTracking','DailyHighCostItems'];
+  const sheets = ['DailyShawarmaStack','SnapshotLog','DailySales','PettyCashDetail','DailyRawProteins','DailyMarinatedProteins','DailyBreadTracking','DailyHighCostItems','PurchaseLog','WasteLog','InventoryVarianceLog'];
   sheets.forEach(name => {
     const sheet = ss.getSheetByName(name); if (!sheet) return; const data = sheet.getDataRange().getValues(); const headers = data[0]; let dateIdx = headers.indexOf('date'); if (dateIdx === -1) dateIdx = headers.indexOf('sales_date'); if (dateIdx === -1) dateIdx = headers.indexOf('count_date'); if (dateIdx === -1) return; for (let i=data.length-1;i>=1;i--){ if (data[i][dateIdx] && new Date(data[i][dateIdx]).toISOString().split('T')[0]===dateString){ sheet.deleteRow(i+1);} }
   });
@@ -3229,7 +3391,7 @@ function createDataBackup(backupName, options = {}) {
       });
     }
     if (config.includeNewTables) {
-      ['Item','SnapshotLog','PettyCashDetail'].forEach(name => { const sheet = ss.getSheetByName(name); if (sheet && sheet.getLastRow() > 1) backupData.data[name] = sheet.getDataRange().getValues(); });
+      ['Item','SnapshotLog','PettyCashDetail','PurchaseLog','WasteLog','InventoryVarianceLog'].forEach(name => { const sheet = ss.getSheetByName(name); if (sheet && sheet.getLastRow() > 1) backupData.data[name] = sheet.getDataRange().getValues(); });
     }
     const backupSheet = getOrCreateBackupSheet();
     const backupJson = JSON.stringify(backupData);
@@ -3743,6 +3905,35 @@ function calculateInventoryVariance(date, employeeId, options) {
     items: results,
     summary: summary
   };
+}
+
+function recordInventoryVarianceLog(varianceData) {
+  if (!varianceData || !Array.isArray(varianceData.items)) return;
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('InventoryVarianceLog');
+  if (!sheet) return;
+
+  varianceData.items.forEach(function(item) {
+    const row = [
+      Utilities.getUuid(),
+      varianceData.date,
+      item.item_id,
+      item.opening_quantity || '',
+      item.received_quantity || '',
+      item.closing_quantity || '',
+      item.actual_usage || '',
+      item.theoretical_usage || '',
+      item.variance || '',
+      item.variance_percentage || '',
+      item.cost_impact || '',
+      item.varianceStatus || '',
+      item.calculationStatus || '',
+      varianceData.employeeId || 'system',
+      new Date(),
+      new Date()
+    ];
+    appendRowSafe(sheet, row);
+  });
 }
 
 function generateVarianceAlerts(varianceData) {
