@@ -1590,18 +1590,41 @@ function generateReportFromNewTables(targetDateString) {
 
     const todaySnapshot = Array.isArray(snapshotData) ? snapshotData.filter(row => row.date && new Date(row.date).toDateString() === targetDateString) : [];
 
-    let inventoryData = null;
+    // Try SnapshotLog first (post-migration), fallback to old tables (pre-migration)
+    let rawProteins = null;
+    let marinatedProteins = null;
+    let bread = null;
+    let highCostItems = null;
+
     if (todaySnapshot.length > 0) {
-      inventoryData = mapSnapshotLogToFormFormat(todaySnapshot);
+      // Post-migration: Use SnapshotLog (only has remaining quantities)
+      const inventoryData = mapSnapshotLogToFormFormat(todaySnapshot);
+      // Note: SnapshotLog only has _remaining fields, not opening/received/expired
+      // This will need enhancement post-migration
+    } else {
+      // Pre-migration: Read from old inventory tables
+      const dataMode = (MIGRATION_CONFIG.dualWriteMode && DATA_NAMESPACE) ? 'base' : 'namespaced';
+      const rawProteinsData = getSheetDataByMode('DailyRawProteins', dataMode);
+      const marinatedProteinsData = getSheetDataByMode('DailyMarinatedProteins', dataMode);
+      const breadData = getSheetDataByMode('DailyBreadTracking', dataMode);
+      const highCostData = getSheetDataByMode('DailyHighCostItems', dataMode);
+
+      rawProteins = rawProteinsData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
+      marinatedProteins = marinatedProteinsData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
+      bread = breadData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
+      highCostItems = highCostData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
     }
 
     return {
       date: targetDateString,
-      dataFound: !!(todayShawarma || todaySales || todaySnapshot.length > 0),
+      dataFound: !!(todayShawarma || todaySales || todaySnapshot.length > 0 || rawProteins || marinatedProteins || bread || highCostItems),
       shawarma: todayShawarma || null,
       sales: todaySales || null,
       salesBreakdown: todayBreakdown,
-      inventory: inventoryData,
+      rawProteins: rawProteins,
+      marinatedProteins: marinatedProteins,
+      bread: bread,
+      highCostItems: highCostItems,
       pettyCashEntries: pettyCashEntries,
       notes: ''
     };
@@ -1616,7 +1639,10 @@ function generateReportFromNewTables(targetDateString) {
       shawarma: null,
       sales: null,
       salesBreakdown: null,
-      inventory: null,
+      rawProteins: null,
+      marinatedProteins: null,
+      bread: null,
+      highCostItems: null,
       pettyCashEntries: [],
       notes: ''
     };
