@@ -778,8 +778,10 @@ function checkExistingEntry(dateString) {
 }
 
 // Delete existing entries for a specific date (EXACT from Employee Code.gs)
-function deleteExistingEntries(dateString) {
+function deleteExistingEntries(dateString, options = {}) {
   try {
+    const preserveLegacy = options.preserveLegacy === true;
+    const skipLegacyDeletes = preserveLegacy && !DATA_NAMESPACE;
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const targetDate = new Date(dateString).toDateString();
 
@@ -793,6 +795,18 @@ function deleteExistingEntries(dateString) {
       'SnapshotLog'
     ];
 
+    const legacySheetNames = new Set([
+      'DailyShawarmaStack',
+      'DailyRawProteins',
+      'DailyMarinatedProteins',
+      'DailyBreadTracking',
+      'DailyHighCostItems',
+      'DailySales',
+      'DailySalesBreakdown',
+      'DailyPettyCash',
+      'PettyCashDetail'
+    ]);
+
     const sheetModes = ['namespaced'];
 
     const getSheetByMode = (sheetName, mode) => {
@@ -803,6 +817,8 @@ function deleteExistingEntries(dateString) {
       const deletedDailySalesIds = [];
 
       sheetsToClean.forEach(sheetName => {
+        if (skipLegacyDeletes && legacySheetNames.has(sheetName)) return;
+
         const sheet = getSheetByMode(sheetName, mode);
         if (!sheet) return;
 
@@ -833,6 +849,8 @@ function deleteExistingEntries(dateString) {
       });
 
       const cleanupRelatedSheet = (sheetName, dateField, idField) => {
+        if (skipLegacyDeletes && legacySheetNames.has(sheetName)) return;
+
         const sheet = getSheetByMode(sheetName, mode);
         if (!sheet || sheet.getLastRow() <= 1) return;
 
@@ -902,7 +920,7 @@ function saveDailyEntry(entryData) {
         });
       }
 
-      deleteExistingEntries(entryDate);
+      deleteExistingEntries(entryDate, { preserveLegacy: true });
     }
 
     if (MIGRATION_CONFIG.enabled) {
