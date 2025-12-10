@@ -1050,8 +1050,14 @@ function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employee
         for (let col = 0; col < width; col++) {
           if (col === 0) {
             merged[col] = data[i][col] || row[col]; // keep existing UUID when present
-          } else if (col < row.length) {
-            merged[col] = row[col];
+            continue;
+          }
+
+          const incoming = col < row.length ? row[col] : undefined;
+          const hasIncomingValue = incoming !== '' && incoming !== null && typeof incoming !== 'undefined';
+
+          if (hasIncomingValue) {
+            merged[col] = incoming;
           } else {
             merged[col] = data[i][col];
           }
