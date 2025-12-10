@@ -18,6 +18,26 @@ function ManagementDashboard() {
     const [showDebugData, setShowDebugData] = React.useState(false);
     const [aggregators, setAggregators] = React.useState([]);
     const [aggregatorSaving, setAggregatorSaving] = React.useState(false);
+    const [showAggregatorDetails, setShowAggregatorDetails] = React.useState(false);
+    const aggregatorDetailsRef = React.useRef(null);
+    const [aggregatorDetailsHeight, setAggregatorDetailsHeight] = React.useState(0);
+
+    const deliveryAggregatorDetails = dashboardData &&
+        dashboardData.enhanced_analytics &&
+        dashboardData.enhanced_analytics.sales &&
+        dashboardData.enhanced_analytics.sales.payment_breakdown &&
+        dashboardData.enhanced_analytics.sales.payment_breakdown.delivery_aggregators &&
+        dashboardData.enhanced_analytics.sales.payment_breakdown.delivery_aggregators.details;
+
+    const hasDeliveryAggregatorDetails = deliveryAggregatorDetails && deliveryAggregatorDetails.length > 0;
+
+    React.useEffect(() => {
+        if (showAggregatorDetails && aggregatorDetailsRef.current) {
+            setAggregatorDetailsHeight(aggregatorDetailsRef.current.offsetHeight);
+        } else {
+            setAggregatorDetailsHeight(0);
+        }
+    }, [showAggregatorDetails, deliveryAggregatorDetails]);
 
     React.useEffect(() => {
         if (selectedPeriod !== 'custom' || (selectedPeriod === 'custom' && customDate)) {
@@ -304,6 +324,43 @@ function ManagementDashboard() {
                     type: rec.priority === 'critical' ? 'danger' : rec.priority === 'high' ? 'warning' : 'info'
                 });
             });
+        }
+
+        if (analytics.inventory_activity) {
+            const summary = analytics.inventory_activity.summary || {};
+            processed.inventory_activity = {
+                received: summary.total_received || 0,
+                consumption: summary.total_consumption || 0,
+                waste: summary.total_waste || 0,
+                purchase_cost: summary.total_purchase_cost || 0,
+                waste_cost: summary.total_waste_cost || 0,
+                missing_snapshots: summary.missing_snapshots || 0
+            };
+
+            const movements = (analytics.inventory_activity.items || [])
+                .filter(item => item.data_status === 'ok' && item.consumption_quantity !== null)
+                .sort((a, b) => (b.consumption_quantity || 0) - (a.consumption_quantity || 0))
+                .slice(0, 3);
+
+            if (movements.length) {
+                processed.inventory_movements = movements;
+            }
+
+            if (processed.inventory_activity.missing_snapshots > 0) {
+                processed.alerts.push({
+                    type: 'warning',
+                    source: 'inventory',
+                    message: `${processed.inventory_activity.missing_snapshots} items missing snapshot data`
+                });
+            }
+
+            if (processed.inventory_activity.waste_cost > 100) {
+                processed.alerts.push({
+                    type: 'danger',
+                    source: 'inventory',
+                    message: 'Waste cost is trending high today'
+                });
+            }
         }
 
         if (analytics.sales) {
@@ -1223,13 +1280,75 @@ function ManagementDashboard() {
                                 {dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.sales && (
                                     <div>
                                         <h4 className="font-medium text-gray-700 mb-3">Payment Methods</h4>
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                        <div
+                                            className="relative grid grid-cols-2 md:grid-cols-4 gap-3 text-sm"
+                                            style={showAggregatorDetails && hasDeliveryAggregatorDetails ? { paddingBottom: `${aggregatorDetailsHeight + 16}px` } : undefined}
+                                        >
                                             {Object.entries(dashboardData.enhanced_analytics.sales.payment_breakdown).map(([method, data]) => {
                                                 if (method === 'total_breakdown' || method === 'variance_from_total') return null;
-                                                const methodNames = { cash: 'Cash', card: 'Card', delivery_aggregator_1: 'Delivery 1', delivery_aggregator_2: 'Delivery 2' };
+                                                const methodNames = { cash: 'Cash', card: 'Card', delivery_aggregators: 'Delivery Aggregators' };
+                                                const isDeliveryAggregators = method === 'delivery_aggregators';
+
+                                                if (isDeliveryAggregators) {
+                                                    const showDetailsControl = data.details && data.details.length > 0;
+                                                    return (
+                                                        <div key={`${method}-block`} className="relative flex flex-col gap-2">
+                                                            <div className="h-full flex flex-col gap-2 border rounded p-2 bg-white">
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <span className="text-gray-600 text-xs">{methodNames[method] || method}</span>
+                                                                    <span className="font-medium">{data.amount.toFixed(2)}</span>
+                                                                </div>
+                                                                <div className="mt-1">
+                                                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                                                        <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${Math.min(100, data.percentage)}%` }}></div>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between text-xs text-gray-500 mt-1">
+                                                                        <span>{data.percentage.toFixed(1)}%</span>
+                                                                        {showDetailsControl && (
+                                                                            <button
+                                                                                type="button"
+                                                                                className="text-blue-600 hover:text-blue-800 font-medium"
+                                                                                onClick={() => setShowAggregatorDetails(prev => !prev)}
+                                                                            >
+                                                                                {showAggregatorDetails ? 'Hide details' : 'View details'}
+                                                                            </button>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            {showDetailsControl && showAggregatorDetails && (
+                                                                <div
+                                                                    className="absolute left-0 right-0 border border-blue-200 rounded-md bg-blue-50 p-3 shadow-inner flex flex-col gap-2 z-10"
+                                                                    style={{ top: 'calc(100% + 0.75rem)' }}
+                                                                    ref={aggregatorDetailsRef}
+                                                                >
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-sm font-medium text-gray-800">Aggregator breakdown</span>
+                                                                        <button
+                                                                            type="button"
+                                                                            className="text-xs text-blue-700 hover:text-blue-900"
+                                                                            onClick={() => setShowAggregatorDetails(false)}
+                                                                        >
+                                                                            Close
+                                                                        </button>
+                                                                    </div>
+                                                                    <div className="grid grid-cols-1 gap-2 text-sm text-gray-700">
+                                                                        {deliveryAggregatorDetails.map((agg, idx) => (
+                                                                            <div key={`${agg.name || 'agg'}-${idx}`} className="flex items-center justify-between">
+                                                                                <span className="truncate pr-2">{agg.name || `Aggregator ${idx + 1}`}</span>
+                                                                                <span className="font-medium">{(agg.amount || 0).toFixed(2)}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                }
+
                                                 return (
-                                                    <div key={method} className="border rounded p-2">
-                                                        <div className="flex justify-between items-center">
+                                                    <div key={method} className="border rounded p-2 h-full flex flex-col gap-2">
+                                                        <div className="flex items-center justify-between gap-2">
                                                             <span className="text-gray-600 text-xs">{methodNames[method] || method}</span>
                                                             <span className="font-medium">{data.amount.toFixed(2)}</span>
                                                         </div>
@@ -1406,6 +1525,63 @@ function ManagementDashboard() {
                                 <div className="bg-green-50 p-4 rounded-lg text-center">
                                     <h4 className="font-medium text-green-800 text-sm">Total Value</h4>
                                     <p className="text-lg font-bold text-green-600">{dashboardData.processed_analytics.inventory_summary.total_value.toFixed(0)} QAR</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.inventory_activity && (
+                            <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+                                <div className="bg-indigo-50 p-4 rounded-lg text-center">
+                                    <h4 className="font-medium text-indigo-800 text-sm">Received Today</h4>
+                                    <p className="text-xl font-bold text-indigo-700">{dashboardData.processed_analytics.inventory_activity.received.toFixed(2)}</p>
+                                </div>
+                                <div className="bg-emerald-50 p-4 rounded-lg text-center">
+                                    <h4 className="font-medium text-emerald-800 text-sm">Consumption</h4>
+                                    <p className="text-xl font-bold text-emerald-700">{dashboardData.processed_analytics.inventory_activity.consumption.toFixed(2)}</p>
+                                </div>
+                                <div className="bg-orange-50 p-4 rounded-lg text-center">
+                                    <h4 className="font-medium text-orange-800 text-sm">Waste</h4>
+                                    <p className="text-xl font-bold text-orange-700">{dashboardData.processed_analytics.inventory_activity.waste.toFixed(2)}</p>
+                                </div>
+                                <div className="bg-blue-50 p-4 rounded-lg text-center">
+                                    <h4 className="font-medium text-blue-800 text-sm">Purchase Cost</h4>
+                                    <p className="text-lg font-bold text-blue-700">{dashboardData.processed_analytics.inventory_activity.purchase_cost.toFixed(2)} QAR</p>
+                                </div>
+                                <div className="bg-amber-50 p-4 rounded-lg text-center">
+                                    <h4 className="font-medium text-amber-800 text-sm">Waste Cost</h4>
+                                    <p className="text-lg font-bold text-amber-700">{dashboardData.processed_analytics.inventory_activity.waste_cost.toFixed(2)} QAR</p>
+                                </div>
+                                <div className="bg-gray-50 p-4 rounded-lg text-center">
+                                    <h4 className="font-medium text-gray-800 text-sm">Missing Snapshots</h4>
+                                    <p className={`text-xl font-bold ${dashboardData.processed_analytics.inventory_activity.missing_snapshots > 0 ? 'text-red-600' : 'text-gray-600'}`}>{dashboardData.processed_analytics.inventory_activity.missing_snapshots}</p>
+                                </div>
+                            </div>
+                        )}
+
+                        {dashboardData && dashboardData.processed_analytics && dashboardData.processed_analytics.inventory_movements && (
+                            <div className="bg-gray-50 rounded-lg p-4 border">
+                                <div className="flex items-center justify-between mb-3">
+                                    <h4 className="font-medium text-gray-800">Top Movements</h4>
+                                    <span className="text-xs text-gray-500">Consumption vs waste</span>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    {dashboardData.processed_analytics.inventory_movements.map(item => (
+                                        <div key={item.item_id} className="bg-white shadow-sm rounded-lg p-3 border">
+                                            <div className="flex items-center justify-between mb-1">
+                                                <div>
+                                                    <p className="text-sm font-semibold text-gray-800">{item.item_name}</p>
+                                                    <p className="text-xs text-gray-500">{item.category}</p>
+                                                </div>
+                                                <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-blue-700">{item.unit}</span>
+                                            </div>
+                                            <div className="text-xs text-gray-600 space-y-1">
+                                                <div className="flex justify-between"><span>Opening</span><span className="font-medium text-gray-800">{item.opening_quantity != null ? item.opening_quantity.toFixed(2) : '—'}</span></div>
+                                                <div className="flex justify-between"><span>Received</span><span className="font-medium text-indigo-700">{item.received_quantity.toFixed(2)}</span></div>
+                                                <div className="flex justify-between"><span>Consumption</span><span className="font-medium text-emerald-700">{item.consumption_quantity != null ? item.consumption_quantity.toFixed(2) : '—'}</span></div>
+                                                <div className="flex justify-between"><span>Waste</span><span className="font-medium text-orange-700">{item.waste_quantity.toFixed(2)}</span></div>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         )}

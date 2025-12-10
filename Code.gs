@@ -1668,13 +1668,14 @@ function generateDashboardReport(date, options = {}) {
       dashboardData.enhanced_analytics.pettyCash = analyzePettyCashData(baseReport.pettyCashEntries, targetDate);
     }
 
-    if (config.includeInventoryAnalysis) {
-      dashboardData.enhanced_analytics.inventory = analyzeInventoryData(baseReport, targetDate);
-    }
+  if (config.includeInventoryAnalysis) {
+    dashboardData.enhanced_analytics.inventory = analyzeInventoryData(baseReport, targetDate);
+    dashboardData.enhanced_analytics.inventory_activity = generateInventoryActivity(targetDate);
+  }
 
-    if (baseReport.sales) {
-      dashboardData.enhanced_analytics.sales = analyzeSalesData(baseReport.sales, targetDate);
-    }
+  if (baseReport.sales) {
+    dashboardData.enhanced_analytics.sales = analyzeSalesData(baseReport.sales, targetDate, baseReport.salesBreakdown);
+  }
 
     if (config.compareToYesterday) {
       dashboardData.enhanced_analytics.comparisons = getComparativeData(targetDate, config);
@@ -1765,6 +1766,141 @@ function analyzePettyCashData(pettyCashEntries, targetDate) {
   }
 
   return analysis;
+}
+
+function getSnapshotEntriesByDate(date) {
+  const snapshotData = getSheetData('SnapshotLog') || [];
+  const target = new Date(date).toDateString();
+  return snapshotData.filter(entry => entry.date && new Date(entry.date).toDateString() === target);
+}
+
+function aggregatePurchasesByItem(date) {
+  const purchases = getSheetData('PurchaseLog') || [];
+  const target = new Date(date).toDateString();
+  const totals = {};
+
+  purchases.forEach(p => {
+    if (p.delivery_date && new Date(p.delivery_date).toDateString() === target) {
+      if (!totals[p.item_id]) {
+        totals[p.item_id] = { quantity: 0, cost: 0 };
+      }
+      totals[p.item_id].quantity += Number(p.quantity) || 0;
+      totals[p.item_id].cost += Number(p.total_cost) || 0;
+    }
+  });
+
+  return totals;
+}
+
+function aggregateWasteByItem(date) {
+  const wasteEntries = getSheetData('WasteLog') || [];
+  const target = new Date(date).toDateString();
+  const totals = {};
+
+  wasteEntries.forEach(entry => {
+    if (entry.date && new Date(entry.date).toDateString() === target) {
+      if (!totals[entry.item_id]) {
+        totals[entry.item_id] = { quantity: 0, cost: 0 };
+      }
+      totals[entry.item_id].quantity += Number(entry.waste_quantity) || 0;
+      totals[entry.item_id].cost += Number(entry.estimated_cost || entry.cost_override) || 0;
+    }
+  });
+
+  return totals;
+}
+
+function generateInventoryActivity(date) {
+  const items = getSheetData('Item') || [];
+  const activeItems = items.filter(it => it.active !== false && it.active !== 'false');
+
+  const todaySnapshots = getSnapshotEntriesByDate(date);
+  const yesterday = new Date(date);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const previousSnapshots = getSnapshotEntriesByDate(yesterday);
+
+  const snapshotToMap = (entries) => {
+    return entries.reduce((acc, entry) => {
+      acc[entry.item_id] = Number(entry.closing_quantity) || 0;
+      return acc;
+    }, {});
+  };
+
+  const todaysMap = snapshotToMap(todaySnapshots);
+  const previousMap = snapshotToMap(previousSnapshots);
+  const purchases = aggregatePurchasesByItem(date);
+  const waste = aggregateWasteByItem(date);
+
+  const activity = [];
+  const summary = {
+    items_tracked: 0,
+    with_snapshots: 0,
+    missing_snapshots: 0,
+    total_received: 0,
+    total_waste: 0,
+    total_consumption: 0,
+    total_purchase_cost: 0,
+    total_waste_cost: 0
+  };
+
+  activeItems.forEach(item => {
+    const opening = previousMap[item.id] !== undefined ? previousMap[item.id] : null;
+    const closing = todaysMap[item.id] !== undefined ? todaysMap[item.id] : null;
+    const received = purchases[item.id] ? purchases[item.id].quantity : 0;
+    const wasted = waste[item.id] ? waste[item.id].quantity : 0;
+    const hasSnapshotData = opening !== null || closing !== null;
+
+    const calculatedUsage = (opening !== null && closing !== null)
+      ? (opening + received) - closing
+      : null;
+
+    const consumption = calculatedUsage !== null ? calculatedUsage - wasted : null;
+    const costPerUnit = Number(item.cost_per_unit) || 0;
+
+    const purchaseCost = purchases[item.id] ? purchases[item.id].cost : 0;
+    const wasteCost = waste[item.id] ? waste[item.id].cost : 0;
+    const consumptionCost = consumption !== null ? consumption * costPerUnit : null;
+
+    activity.push({
+      item_id: item.id,
+      item_name: item.name,
+      category: item.category,
+      unit: item.unit,
+      opening_quantity: opening,
+      received_quantity: received,
+      closing_quantity: closing,
+      waste_quantity: wasted,
+      calculated_usage: calculatedUsage,
+      consumption_quantity: consumption,
+      purchase_cost: purchaseCost,
+      waste_cost: wasteCost,
+      consumption_cost: consumptionCost,
+      data_status: hasSnapshotData ? 'ok' : 'missing_snapshot'
+    });
+
+    summary.items_tracked++;
+    if (hasSnapshotData) {
+      summary.with_snapshots++;
+    } else {
+      summary.missing_snapshots++;
+    }
+
+    summary.total_received += received;
+    summary.total_purchase_cost += purchaseCost;
+    summary.total_waste += wasted;
+    summary.total_waste_cost += wasteCost;
+
+    if (consumption !== null) {
+      summary.total_consumption += consumption;
+    }
+  });
+
+  return {
+    date: new Date(date),
+    generated_at: new Date(),
+    items: activity,
+    summary: summary
+  };
 }
 
 function analyzeInventoryData(reportData, targetDate) {
@@ -1970,7 +2106,7 @@ function getItemUnitCost(category, itemName) {
   return 0;
 }
 
-function analyzeSalesData(salesData, targetDate) {
+function analyzeSalesData(salesData, targetDate, salesBreakdown) {
   const analysis = {
     total_revenue: parseFloat(salesData.total_revenue) || 0,
     shawarma_revenue: parseFloat(salesData.shawarma_revenue) || 0,
@@ -1980,13 +2116,56 @@ function analyzeSalesData(salesData, targetDate) {
     recommendations: []
   };
 
-  const cash = parseFloat(salesData.cash_sales) || 0;
-  const card = parseFloat(salesData.card_sales) || 0;
-  const delivery1 = parseFloat(salesData.delivery_aggregator_1) || 0;
-  const delivery2 = parseFloat(salesData.delivery_aggregator_2) || 0;
-  const pettyCash = parseFloat(salesData.petty_cash_total) || 0;
+  function getPaymentAmount(fields) {
+    for (let i = 0; i < fields.length; i++) {
+      const field = fields[i];
+      if (salesData && salesData[field] !== undefined && salesData[field] !== '') {
+        return parseFloat(salesData[field]) || 0;
+      }
+      if (salesBreakdown && salesBreakdown[field] !== undefined && salesBreakdown[field] !== '') {
+        return parseFloat(salesBreakdown[field]) || 0;
+      }
+    }
+    return 0;
+  }
 
-  const paymentTotal = cash + card + delivery1 + delivery2;
+  function getAggregatorDetails() {
+    if (!salesBreakdown || !salesBreakdown.aggregator_details) return [];
+    try {
+      const parsed = typeof salesBreakdown.aggregator_details === 'string'
+        ? JSON.parse(salesBreakdown.aggregator_details)
+        : salesBreakdown.aggregator_details;
+      if (!Array.isArray(parsed)) return [];
+
+      return parsed
+        .map(item => ({
+          name: item.name || item.aggregator || `Aggregator ${item.id || ''}`.trim(),
+          amount: parseFloat(item.amount) || 0
+        }))
+        .filter(item => item.name || item.amount > 0);
+    } catch (error) {
+      Logger.log('Failed to parse aggregator details: ' + error.toString());
+      return [];
+    }
+  }
+
+  const cash = getPaymentAmount(['cash_sales']);
+  const card = getPaymentAmount(['card_sales']);
+  const aggregatorDetails = getAggregatorDetails();
+
+  const legacyAggregators = [
+    { name: 'Delivery Aggregator 1', amount: parseFloat(salesData.delivery_aggregator_1) || 0 },
+    { name: 'Delivery Aggregator 2', amount: parseFloat(salesData.delivery_aggregator_2) || 0 }
+  ].filter(item => item.amount > 0);
+
+  const deliveryDetails = aggregatorDetails.length ? aggregatorDetails : legacyAggregators;
+  const deliveryTotalFromDetails = deliveryDetails.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+  const deliveryTotal = deliveryTotalFromDetails > 0
+    ? deliveryTotalFromDetails
+    : getPaymentAmount(['delivery_sales']);
+
+  const pettyCash = parseFloat(salesData.petty_cash_total) || 0;
+  const paymentTotal = cash + card + deliveryTotal;
 
   analysis.payment_breakdown = {
     cash: {
@@ -1997,13 +2176,10 @@ function analyzeSalesData(salesData, targetDate) {
       amount: card,
       percentage: paymentTotal > 0 ? (card / paymentTotal * 100) : 0
     },
-    delivery_aggregator_1: {
-      amount: delivery1,
-      percentage: paymentTotal > 0 ? (delivery1 / paymentTotal * 100) : 0
-    },
-    delivery_aggregator_2: {
-      amount: delivery2,
-      percentage: paymentTotal > 0 ? (delivery2 / paymentTotal * 100) : 0
+    delivery_aggregators: {
+      amount: deliveryTotal,
+      percentage: paymentTotal > 0 ? (deliveryTotal / paymentTotal * 100) : 0,
+      details: deliveryDetails
     },
     total_breakdown: paymentTotal,
     variance_from_total: Math.abs(analysis.total_revenue - paymentTotal)
@@ -2059,8 +2235,10 @@ function analyzeSalesData(salesData, targetDate) {
 }
 
 function calculatePaymentDiversity(paymentBreakdown) {
-  const methods = ['cash', 'card', 'delivery_aggregator_1', 'delivery_aggregator_2'];
-  const percentages = methods.map(method => paymentBreakdown[method].percentage);
+  const methodKeys = Object.keys(paymentBreakdown || {}).filter(key => !['total_breakdown', 'variance_from_total'].includes(key));
+  if (methodKeys.length === 0) return 0;
+
+  const percentages = methodKeys.map(method => paymentBreakdown[method].percentage || 0);
 
   let entropy = 0;
   percentages.forEach(percentage => {
@@ -2070,7 +2248,8 @@ function calculatePaymentDiversity(paymentBreakdown) {
     }
   });
 
-  return Math.min(100, (entropy / Math.log2(methods.length)) * 100);
+  const base = Math.log2(Math.max(1, methodKeys.length));
+  return base === 0 ? 0 : Math.min(100, (entropy / base) * 100);
 }
 
 function calculateRevenueQualityScore(analysis) {
