@@ -18,6 +18,7 @@ function ManagementDashboard() {
     const [showDebugData, setShowDebugData] = React.useState(false);
     const [aggregators, setAggregators] = React.useState([]);
     const [aggregatorSaving, setAggregatorSaving] = React.useState(false);
+    const [showAggregatorDetails, setShowAggregatorDetails] = React.useState(false);
 
     React.useEffect(() => {
         if (selectedPeriod !== 'custom' || (selectedPeriod === 'custom' && customDate)) {
@@ -1264,6 +1265,7 @@ function ManagementDashboard() {
                                             {Object.entries(dashboardData.enhanced_analytics.sales.payment_breakdown).map(([method, data]) => {
                                                 if (method === 'total_breakdown' || method === 'variance_from_total') return null;
                                                 const methodNames = { cash: 'Cash', card: 'Card', delivery_aggregators: 'Delivery Aggregators' };
+                                                const isDeliveryAggregators = method === 'delivery_aggregators';
                                                 return (
                                                     <div key={method} className="border rounded p-2">
                                                         <div className="flex justify-between items-center">
@@ -1276,14 +1278,26 @@ function ManagementDashboard() {
                                                             </div>
                                                             <span className="text-xs text-gray-500">{data.percentage.toFixed(1)}%</span>
                                                         </div>
-                                                        {method === 'delivery_aggregators' && data.details && data.details.length > 0 && (
-                                                            <div className="mt-2 space-y-1">
-                                                                {data.details.map((agg, idx) => (
-                                                                    <div key={`${agg.name || 'agg'}-${idx}`} className="flex justify-between text-xs text-gray-600">
-                                                                        <span>{agg.name || `Aggregator ${idx + 1}`}</span>
-                                                                        <span>{(agg.amount || 0).toFixed(2)}</span>
+                                                        {isDeliveryAggregators && data.details && data.details.length > 0 && (
+                                                            <div className="mt-2">
+                                                                <button
+                                                                    type="button"
+                                                                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                                                                    onClick={() => setShowAggregatorDetails(prev => !prev)}
+                                                                >
+                                                                    <span>{showAggregatorDetails ? 'Hide details' : 'View aggregator breakdown'}</span>
+                                                                    <span aria-hidden="true">{showAggregatorDetails ? '▴' : '▾'}</span>
+                                                                </button>
+                                                                {showAggregatorDetails && (
+                                                                    <div className="mt-2 space-y-1 border-t pt-2">
+                                                                        {data.details.map((agg, idx) => (
+                                                                            <div key={`${agg.name || 'agg'}-${idx}`} className="flex justify-between text-xs text-gray-600">
+                                                                                <span>{agg.name || `Aggregator ${idx + 1}`}</span>
+                                                                                <span>{(agg.amount || 0).toFixed(2)}</span>
+                                                                            </div>
+                                                                        ))}
                                                                     </div>
-                                                                ))}
+                                                                )}
                                                             </div>
                                                         )}
                                                     </div>
