@@ -1505,7 +1505,15 @@ function mapLegacyInventoryToFlattened(rawProteins, marinatedProteins, bread, hi
   const inventory = {};
 
   if (rawProteins) {
-    inventory.frozen_chicken_breast_remaining = rawProteins.frozen_chicken_breast_remaining;
+    const chickenBreastRemaining =
+      rawProteins.frozen_chicken_breast_remaining != null
+        ? rawProteins.frozen_chicken_breast_remaining
+        : rawProteins.chicken_breast_remaining;
+
+    // Preserve both legacy and snapshot-friendly keys so frozen chicken breast
+    // loads even when old tables used a different column label.
+    inventory.frozen_chicken_breast_remaining = chickenBreastRemaining;
+    inventory.chicken_breast_remaining = chickenBreastRemaining;
     inventory.chicken_shawarma_remaining = rawProteins.chicken_shawarma_remaining;
     inventory.steak_remaining = rawProteins.steak_remaining;
   }
