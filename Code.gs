@@ -745,29 +745,32 @@ function validateManagementPin(inputPin) {
 // Check if entry exists for given date (EXACT from Employee Code.gs)
 function checkExistingEntry(dateString) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
     const targetDate = new Date(dateString).toDateString();
-    
-    const shawarmaData = getSheetData('DailyShawarmaStack');
-    
-    const existingEntry = shawarmaData.find(row => {
-      if (!row.date) return false;
-      return new Date(row.date).toDateString() === targetDate;
-    });
-    
-    if (existingEntry) {
+    const report = JSON.parse(generateDailyReport(dateString));
+
+    const inventoryExists = !!(report.inventory || report.rawProteins || report.marinatedProteins || report.bread || report.highCostItems);
+    const entryExists = !!(report.dataFound || report.shawarma || report.sales || inventoryExists);
+
+    if (entryExists) {
+      const entrySummary = {
+        shawarma: !!report.shawarma,
+        sales: !!report.sales,
+        inventory: inventoryExists,
+        pettyCash: Array.isArray(report.pettyCashEntries) && report.pettyCashEntries.length > 0
+      };
+
       return JSON.stringify({
         exists: true,
-        entry: existingEntry,
+        entry: entrySummary,
         entryDate: targetDate
       });
     }
-    
+
     return JSON.stringify({
       exists: false,
       entryDate: targetDate
     });
-    
+
   } catch (error) {
     Logger.log('Error checking existing entry: ' + error.toString());
     throw new Error('Failed to check existing entry: ' + error.message);
@@ -956,12 +959,17 @@ function saveDailyEntryToNewTables(entryData) {
   const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
   const employeeId = entryData.employeeId || 'unknown';
 
+  // Normalize inventory payload when the client sends flattened keys only
+  const inventoryData = (entryData.rawProteins || entryData.marinatedProteins || entryData.bread || entryData.highCostItems)
+    ? entryData
+    : { ...entryData, ...convertInventoryDataToNestedFormat(entryData.inventory) };
+
   if (entryData.shawarmaStack) {
     saveShawarmaStackData(entryData, entryDate, employeeId);
   }
 
-  if (entryData.rawProteins || entryData.marinatedProteins || entryData.bread || entryData.highCostItems) {
-    saveInventorySnapshots(entryData, entryDate, employeeId);
+  if (inventoryData.rawProteins || inventoryData.marinatedProteins || inventoryData.bread || inventoryData.highCostItems) {
+    saveInventorySnapshots(inventoryData, entryDate, employeeId);
   }
 
   let dailySalesId = null;
