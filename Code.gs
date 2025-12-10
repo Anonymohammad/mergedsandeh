@@ -793,7 +793,7 @@ function deleteExistingEntries(dateString) {
       'SnapshotLog'
     ];
 
-    const sheetModes = (MIGRATION_CONFIG.dualWriteMode && DATA_NAMESPACE) ? ['namespaced', 'base'] : ['namespaced'];
+    const sheetModes = ['namespaced'];
 
     const getSheetByMode = (sheetName, mode) => {
       return mode === 'base' ? ss.getSheetByName(sheetName) : getSheetWithNamespace(sheetName, ss);
@@ -1031,6 +1031,40 @@ function saveToOldSalesTable(entryData, entryDate, employeeId) {
 function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employeeName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
+  const upsertLegacyRow = (sheet, row) => {
+    if (!sheet) return;
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) {
+      sheet.appendRow(row);
+      return;
+    }
+
+    const dateIdx = 1; // legacy sheets store the entry date in column B
+    for (let i = 1; i < data.length; i++) {
+      const existingDate = data[i][dateIdx];
+      if (existingDate && new Date(existingDate).toDateString() === new Date(entryDate).toDateString()) {
+        const width = Math.max(data[i].length, row.length);
+        const merged = new Array(width);
+
+        for (let col = 0; col < width; col++) {
+          if (col === 0) {
+            merged[col] = data[i][col] || row[col]; // keep existing UUID when present
+          } else if (col < row.length) {
+            merged[col] = row[col];
+          } else {
+            merged[col] = data[i][col];
+          }
+        }
+
+        sheet.getRange(i + 1, 1, 1, merged.length).setValues([merged]);
+        return;
+      }
+    }
+
+    sheet.appendRow(row);
+  };
+
   if (inventoryData.rawProteins && Object.keys(inventoryData.rawProteins).length > 0) {
     const rawProteinsSheet = ss.getSheetByName('DailyRawProteins');
     const row = [
@@ -1053,7 +1087,7 @@ function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employee
       new Date(),
       new Date()
     ];
-    rawProteinsSheet.appendRow(row);
+    upsertLegacyRow(rawProteinsSheet, row);
   }
 
   if (inventoryData.marinatedProteins && Object.keys(inventoryData.marinatedProteins).length > 0) {
@@ -1086,7 +1120,7 @@ function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employee
       new Date(),
       new Date()
     ];
-    marinatedSheet.appendRow(row);
+    upsertLegacyRow(marinatedSheet, row);
   }
 
   if (inventoryData.bread && Object.keys(inventoryData.bread).length > 0) {
@@ -1111,7 +1145,7 @@ function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employee
       new Date(),
       new Date()
     ];
-    breadSheet.appendRow(row);
+    upsertLegacyRow(breadSheet, row);
   }
 
   if (inventoryData.highCostItems && Object.keys(inventoryData.highCostItems).length > 0) {
@@ -1132,7 +1166,7 @@ function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employee
       new Date(),
       new Date()
     ];
-    highCostSheet.appendRow(row);
+    upsertLegacyRow(highCostSheet, row);
   }
 }
 
