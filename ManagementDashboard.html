@@ -19,6 +19,8 @@ function ManagementDashboard() {
     const [aggregators, setAggregators] = React.useState([]);
     const [aggregatorSaving, setAggregatorSaving] = React.useState(false);
     const [showAggregatorDetails, setShowAggregatorDetails] = React.useState(false);
+    const aggregatorDetailsRef = React.useRef(null);
+    const [aggregatorDetailsHeight, setAggregatorDetailsHeight] = React.useState(0);
 
     const deliveryAggregatorDetails = dashboardData &&
         dashboardData.enhanced_analytics &&
@@ -28,6 +30,14 @@ function ManagementDashboard() {
         dashboardData.enhanced_analytics.sales.payment_breakdown.delivery_aggregators.details;
 
     const hasDeliveryAggregatorDetails = deliveryAggregatorDetails && deliveryAggregatorDetails.length > 0;
+
+    React.useEffect(() => {
+        if (showAggregatorDetails && aggregatorDetailsRef.current) {
+            setAggregatorDetailsHeight(aggregatorDetailsRef.current.offsetHeight);
+        } else {
+            setAggregatorDetailsHeight(0);
+        }
+    }, [showAggregatorDetails, deliveryAggregatorDetails]);
 
     React.useEffect(() => {
         if (selectedPeriod !== 'custom' || (selectedPeriod === 'custom' && customDate)) {
@@ -1270,7 +1280,10 @@ function ManagementDashboard() {
                                 {dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.sales && (
                                     <div>
                                         <h4 className="font-medium text-gray-700 mb-3">Payment Methods</h4>
-                                        <div className={`relative grid grid-cols-2 md:grid-cols-4 gap-3 text-sm ${showAggregatorDetails && hasDeliveryAggregatorDetails ? 'pb-48 md:pb-52' : ''}`}>
+                                        <div
+                                            className="relative grid grid-cols-2 md:grid-cols-4 gap-3 text-sm"
+                                            style={showAggregatorDetails && hasDeliveryAggregatorDetails ? { paddingBottom: `${aggregatorDetailsHeight + 16}px` } : undefined}
+                                        >
                                             {Object.entries(dashboardData.enhanced_analytics.sales.payment_breakdown).map(([method, data]) => {
                                                 if (method === 'total_breakdown' || method === 'variance_from_total') return null;
                                                 const methodNames = { cash: 'Cash', card: 'Card', delivery_aggregators: 'Delivery Aggregators' };
@@ -1307,6 +1320,7 @@ function ManagementDashboard() {
                                                                 <div
                                                                     className="absolute left-0 right-0 border border-blue-200 rounded-md bg-blue-50 p-3 shadow-inner flex flex-col gap-2 z-10"
                                                                     style={{ top: 'calc(100% + 0.75rem)' }}
+                                                                    ref={aggregatorDetailsRef}
                                                                 >
                                                                     <div className="flex items-center justify-between">
                                                                         <span className="text-sm font-medium text-gray-800">Aggregator breakdown</span>
