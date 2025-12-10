@@ -981,6 +981,8 @@ function saveDailyEntryToNewTables(entryData) {
     ? entryData
     : { ...entryData, ...convertInventoryDataToNestedFormat(entryData.inventory) };
 
+  normalizeInventoryAliases(inventoryData);
+
   if (entryData.shawarmaStack) {
     saveShawarmaStackData(entryData, entryDate, employeeId);
   }
@@ -1022,6 +1024,8 @@ function saveDailyEntryToOldTables(entryData) {
   } else if (entryData.inventory) {
     inventoryData = convertInventoryDataToNestedFormat(entryData.inventory);
   }
+
+  normalizeInventoryAliases(inventoryData);
 
   if (entryData.shawarmaStack) {
     saveToOldShawarmaTable(entryData, entryDate, employeeId);
@@ -1273,6 +1277,33 @@ function convertInventoryDataToNestedFormat(inventory) {
   });
 
   return nested;
+}
+
+function normalizeInventoryAliases(inventoryData) {
+  if (!inventoryData || !inventoryData.rawProteins) return inventoryData;
+
+  const coalesce = (primary, alias) => {
+    if (primary !== '' && primary !== null && typeof primary !== 'undefined') {
+      return primary;
+    }
+    return alias;
+  };
+
+  const rawProteins = inventoryData.rawProteins;
+  const suffixes = ['opening', 'received', 'expired', 'remaining'];
+
+  suffixes.forEach(function(suffix) {
+    const frozenKey = 'frozen_chicken_breast_' + suffix;
+    const legacyKey = 'chicken_breast_' + suffix;
+    const value = coalesce(rawProteins[frozenKey], rawProteins[legacyKey]);
+
+    if (value !== '' && value !== null && typeof value !== 'undefined') {
+      rawProteins[frozenKey] = value;
+      rawProteins[legacyKey] = value;
+    }
+  });
+
+  return inventoryData;
 }
 
 function saveShawarmaStackData(entryData, entryDate, employeeId) {
