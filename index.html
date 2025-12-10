@@ -1492,10 +1492,13 @@ function DailyEntryTab({ employeeSession }) {
                 .sort((a, b) => new Date(b.date) - new Date(a.date));
 
             const handleSave = (entry) => {
+                const resolvedUnit = entry.unit || (items.find(it => (it.id || it.name) === entry.item) || {}).unit || '';
+                const payload = { ...entry, unit: resolvedUnit, variance: (parseFloat(entry.quantity || 0) > 5) };
+
                 if (editing) {
-                    setEntries(prev => prev.map(e => e.id === editing.id ? { ...entry, id: editing.id, unit: entry.unit || editing.unit, variance: (parseFloat(entry.quantity || 0) > 5) } : e));
+                    setEntries(prev => prev.map(e => e.id === editing.id ? { ...payload, id: editing.id } : e));
                 } else {
-                    setEntries(prev => [{ ...entry, id: Date.now(), unit: entry.unit || (items.find(it => (it.id || it.name) === entry.item)?.unit || ''), variance: (parseFloat(entry.quantity || 0) > 5) }, ...prev]);
+                    setEntries(prev => [{ ...payload, id: Date.now() }, ...prev]);
                 }
                 setEditing(null);
                 setShowModal(false);
