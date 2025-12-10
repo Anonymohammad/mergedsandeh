@@ -1318,11 +1318,28 @@ function generateDailyReport(date) {
       }
     }
 
-    if (!reportData.dataFound && MIGRATION_CONFIG.fallbackToOld) {
+    const shouldFallbackForInventory = !reportData.inventory && MIGRATION_CONFIG.fallbackToOld;
+
+    if ((!reportData.dataFound || shouldFallbackForInventory) && MIGRATION_CONFIG.fallbackToOld) {
       try {
         const oldTableData = generateReportFromOldTables(targetDateString);
         if (oldTableData && oldTableData.dataFound) {
-          reportData = { ...reportData, ...oldTableData, dataSource: 'old_tables' };
+          const mergedReport = { ...reportData };
+
+          if (shouldFallbackForInventory) {
+            mergedReport.inventory = oldTableData.inventory || mergedReport.inventory;
+            mergedReport.rawProteins = mergedReport.rawProteins || oldTableData.rawProteins;
+            mergedReport.marinatedProteins = mergedReport.marinatedProteins || oldTableData.marinatedProteins;
+            mergedReport.bread = mergedReport.bread || oldTableData.bread;
+            mergedReport.highCostItems = mergedReport.highCostItems || oldTableData.highCostItems;
+          }
+
+          mergedReport.dataFound = mergedReport.dataFound || oldTableData.dataFound;
+          mergedReport.dataSource = reportData.dataSource === 'new_tables' && shouldFallbackForInventory
+            ? 'hybrid_new_with_legacy_inventory'
+            : 'old_tables';
+
+          reportData = mergedReport;
           logMigrationActivity('old_tables_read_fallback', {
             date: targetDateString,
             hasData: oldTableData.dataFound
@@ -1466,6 +1483,8 @@ function generateReportFromOldTables(targetDateString) {
   const bread = breadData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
   const highCostItems = highCostData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
 
+  const inventoryFlat = mapLegacyInventoryToFlattened(rawProteins, marinatedProteins, bread, highCostItems);
+
   return {
     date: targetDateString,
     dataFound: !!(todayShawarma || todaySales || rawProteins || marinatedProteins || bread || highCostItems || todayBreakdown),
@@ -1475,10 +1494,42 @@ function generateReportFromOldTables(targetDateString) {
     marinatedProteins: marinatedProteins,
     bread: bread,
     highCostItems: highCostItems,
+    inventory: inventoryFlat,
     pettyCashEntries: pettyCashEntries,
     salesBreakdown: todayBreakdown,
     notes: ''
   };
+}
+
+function mapLegacyInventoryToFlattened(rawProteins, marinatedProteins, bread, highCostItems) {
+  const inventory = {};
+
+  if (rawProteins) {
+    inventory.frozen_chicken_breast_remaining = rawProteins.frozen_chicken_breast_remaining;
+    inventory.chicken_shawarma_remaining = rawProteins.chicken_shawarma_remaining;
+    inventory.steak_remaining = rawProteins.steak_remaining;
+  }
+
+  if (marinatedProteins) {
+    inventory.fahita_chicken_remaining = marinatedProteins.fahita_chicken_remaining;
+    inventory.chicken_sub_remaining = marinatedProteins.chicken_sub_remaining;
+    inventory.spicy_strips_remaining = marinatedProteins.spicy_strips_remaining;
+    inventory.original_strips_remaining = marinatedProteins.original_strips_remaining;
+    inventory.marinated_steak_remaining = marinatedProteins.marinated_steak_remaining;
+  }
+
+  if (bread) {
+    inventory.saj_bread_remaining = bread.saj_bread_remaining;
+    inventory.pita_bread_remaining = bread.pita_bread_remaining;
+    inventory.bread_rolls_remaining = bread.bread_rolls_remaining;
+  }
+
+  if (highCostItems) {
+    inventory.cream_remaining = highCostItems.cream_remaining;
+    inventory.mayo_remaining = highCostItems.mayo_remaining;
+  }
+
+  return inventory;
 }
 
 function generateDashboardReport(date, options = {}) {
