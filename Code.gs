@@ -892,8 +892,7 @@ function saveDailyEntry(entryData) {
 
     const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
 
-    const hasNamespace = !!DATA_NAMESPACE;
-    const legacySaveEnabled = MIGRATION_CONFIG.dualWriteMode && hasNamespace;
+    const legacySaveEnabled = MIGRATION_CONFIG.dualWriteMode;
 
     if (entryData.isUpdate) {
       if (!entryData.managementPin || !validateManagementPin(entryData.managementPin)) {
@@ -1150,6 +1149,10 @@ function convertInventoryDataToNestedFormat(inventory) {
     'chicken_breast_received': 'rawProteins.frozen_chicken_breast_received',
     'chicken_breast_expired': 'rawProteins.frozen_chicken_breast_expired',
     'chicken_breast_remaining': 'rawProteins.frozen_chicken_breast_remaining',
+    'frozen_chicken_breast_opening': 'rawProteins.frozen_chicken_breast_opening',
+    'frozen_chicken_breast_received': 'rawProteins.frozen_chicken_breast_received',
+    'frozen_chicken_breast_expired': 'rawProteins.frozen_chicken_breast_expired',
+    'frozen_chicken_breast_remaining': 'rawProteins.frozen_chicken_breast_remaining',
     'chicken_shawarma_opening': 'rawProteins.chicken_shawarma_opening',
     'chicken_shawarma_received': 'rawProteins.chicken_shawarma_received',
     'chicken_shawarma_expired': 'rawProteins.chicken_shawarma_expired',
