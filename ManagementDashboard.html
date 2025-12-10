@@ -1270,7 +1270,7 @@ function ManagementDashboard() {
                                 {dashboardData.enhanced_analytics && dashboardData.enhanced_analytics.sales && (
                                     <div>
                                         <h4 className="font-medium text-gray-700 mb-3">Payment Methods</h4>
-                                        <div className={`relative grid grid-cols-2 md:grid-cols-4 gap-3 text-sm ${showAggregatorDetails && hasDeliveryAggregatorDetails ? 'pb-28' : ''}`}>
+                                        <div className={`relative grid grid-cols-2 md:grid-cols-4 gap-3 text-sm ${showAggregatorDetails && hasDeliveryAggregatorDetails ? 'pb-48 md:pb-52' : ''}`}>
                                             {Object.entries(dashboardData.enhanced_analytics.sales.payment_breakdown).map(([method, data]) => {
                                                 if (method === 'total_breakdown' || method === 'variance_from_total') return null;
                                                 const methodNames = { cash: 'Cash', card: 'Card', delivery_aggregators: 'Delivery Aggregators' };
@@ -1305,7 +1305,7 @@ function ManagementDashboard() {
                                                             </div>
                                                             {showDetailsControl && showAggregatorDetails && (
                                                                 <div
-                                                                    className="absolute left-0 right-0 border border-blue-200 rounded-md bg-blue-50 p-3 shadow-inner flex flex-col gap-2"
+                                                                    className="absolute left-0 right-0 border border-blue-200 rounded-md bg-blue-50 p-3 shadow-inner flex flex-col gap-2 z-10"
                                                                     style={{ top: 'calc(100% + 0.75rem)' }}
                                                                 >
                                                                     <div className="flex items-center justify-between">
