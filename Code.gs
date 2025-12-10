@@ -1536,6 +1536,16 @@ function mapSnapshotLogToFormFormat(snapshotEntries) {
       });
     }
 
+    const chickenBreastValue =
+      flattened.frozen_chicken_breast_remaining != null
+        ? flattened.frozen_chicken_breast_remaining
+        : flattened.chicken_breast_remaining;
+
+    if (chickenBreastValue != null) {
+      flattened.frozen_chicken_breast_remaining = chickenBreastValue;
+      flattened.chicken_breast_remaining = chickenBreastValue;
+    }
+
     return flattened;
   } catch (error) {
     logMigrationActivity('map_snapshot_log_error', { error: error.message }, 'error');
