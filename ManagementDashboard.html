@@ -1279,31 +1279,43 @@ function ManagementDashboard() {
                                                             <span className="text-xs text-gray-500">{data.percentage.toFixed(1)}%</span>
                                                         </div>
                                                         {isDeliveryAggregators && data.details && data.details.length > 0 && (
-                                                            <div className="mt-2">
-                                                                <button
-                                                                    type="button"
-                                                                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                                                                    onClick={() => setShowAggregatorDetails(prev => !prev)}
-                                                                >
-                                                                    <span>{showAggregatorDetails ? 'Hide details' : 'View aggregator breakdown'}</span>
-                                                                    <span aria-hidden="true">{showAggregatorDetails ? '▴' : '▾'}</span>
-                                                                </button>
-                                                                {showAggregatorDetails && (
-                                                                    <div className="mt-2 space-y-1 border-t pt-2">
-                                                                        {data.details.map((agg, idx) => (
-                                                                            <div key={`${agg.name || 'agg'}-${idx}`} className="flex justify-between text-xs text-gray-600">
-                                                                                <span>{agg.name || `Aggregator ${idx + 1}`}</span>
-                                                                                <span>{(agg.amount || 0).toFixed(2)}</span>
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
-                                                            </div>
+                                                            <p className="mt-2 text-[11px] text-gray-500">Detailed breakdown available below</p>
                                                         )}
                                                     </div>
                                                 );
                                             }).filter(Boolean)}
                                         </div>
+
+                                        {dashboardData.enhanced_analytics.sales.payment_breakdown.delivery_aggregators?.details?.length > 0 && (
+                                            <div className="mt-3">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-medium text-gray-700">Delivery aggregator breakdown</span>
+                                                        <span className="text-xs text-gray-500">Supplemental detail</span>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                                                        onClick={() => setShowAggregatorDetails(prev => !prev)}
+                                                    >
+                                                        <span>{showAggregatorDetails ? 'Hide' : 'View'} breakdown</span>
+                                                        <span aria-hidden="true">{showAggregatorDetails ? '▴' : '▾'}</span>
+                                                    </button>
+                                                </div>
+                                                {showAggregatorDetails && (
+                                                    <div className="border rounded-md bg-gray-50 p-3">
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                            {dashboardData.enhanced_analytics.sales.payment_breakdown.delivery_aggregators.details.map((agg, idx) => (
+                                                                <div key={`${agg.name || 'agg'}-${idx}`} className="flex items-center justify-between text-sm text-gray-700">
+                                                                    <span className="truncate pr-2">{agg.name || `Aggregator ${idx + 1}`}</span>
+                                                                    <span className="font-medium">{(agg.amount || 0).toFixed(2)}</span>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
 
                                         {dashboardData.enhanced_analytics.sales.payment_breakdown.variance_from_total > 0 && (
                                             <div className={`mt-3 p-2 rounded text-sm ${
