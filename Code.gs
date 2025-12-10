@@ -2129,13 +2129,43 @@ function analyzeSalesData(salesData, targetDate, salesBreakdown) {
     return 0;
   }
 
+  function getAggregatorDetails() {
+    if (!salesBreakdown || !salesBreakdown.aggregator_details) return [];
+    try {
+      const parsed = typeof salesBreakdown.aggregator_details === 'string'
+        ? JSON.parse(salesBreakdown.aggregator_details)
+        : salesBreakdown.aggregator_details;
+      if (!Array.isArray(parsed)) return [];
+
+      return parsed
+        .map(item => ({
+          name: item.name || item.aggregator || `Aggregator ${item.id || ''}`.trim(),
+          amount: parseFloat(item.amount) || 0
+        }))
+        .filter(item => item.name || item.amount > 0);
+    } catch (error) {
+      Logger.log('Failed to parse aggregator details: ' + error.toString());
+      return [];
+    }
+  }
+
   const cash = getPaymentAmount(['cash_sales']);
   const card = getPaymentAmount(['card_sales']);
-  const delivery1 = getPaymentAmount(['delivery_aggregator_1', 'delivery_sales']);
-  const delivery2 = getPaymentAmount(['delivery_aggregator_2']);
-  const pettyCash = parseFloat(salesData.petty_cash_total) || 0;
+  const aggregatorDetails = getAggregatorDetails();
 
-  const paymentTotal = cash + card + delivery1 + delivery2;
+  const legacyAggregators = [
+    { name: 'Delivery Aggregator 1', amount: parseFloat(salesData.delivery_aggregator_1) || 0 },
+    { name: 'Delivery Aggregator 2', amount: parseFloat(salesData.delivery_aggregator_2) || 0 }
+  ].filter(item => item.amount > 0);
+
+  const deliveryDetails = aggregatorDetails.length ? aggregatorDetails : legacyAggregators;
+  const deliveryTotalFromDetails = deliveryDetails.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+  const deliveryTotal = deliveryTotalFromDetails > 0
+    ? deliveryTotalFromDetails
+    : getPaymentAmount(['delivery_sales']);
+
+  const pettyCash = parseFloat(salesData.petty_cash_total) || 0;
+  const paymentTotal = cash + card + deliveryTotal;
 
   analysis.payment_breakdown = {
     cash: {
@@ -2146,13 +2176,10 @@ function analyzeSalesData(salesData, targetDate, salesBreakdown) {
       amount: card,
       percentage: paymentTotal > 0 ? (card / paymentTotal * 100) : 0
     },
-    delivery_aggregator_1: {
-      amount: delivery1,
-      percentage: paymentTotal > 0 ? (delivery1 / paymentTotal * 100) : 0
-    },
-    delivery_aggregator_2: {
-      amount: delivery2,
-      percentage: paymentTotal > 0 ? (delivery2 / paymentTotal * 100) : 0
+    delivery_aggregators: {
+      amount: deliveryTotal,
+      percentage: paymentTotal > 0 ? (deliveryTotal / paymentTotal * 100) : 0,
+      details: deliveryDetails
     },
     total_breakdown: paymentTotal,
     variance_from_total: Math.abs(analysis.total_revenue - paymentTotal)
@@ -2208,8 +2235,10 @@ function analyzeSalesData(salesData, targetDate, salesBreakdown) {
 }
 
 function calculatePaymentDiversity(paymentBreakdown) {
-  const methods = ['cash', 'card', 'delivery_aggregator_1', 'delivery_aggregator_2'];
-  const percentages = methods.map(method => paymentBreakdown[method].percentage);
+  const methodKeys = Object.keys(paymentBreakdown || {}).filter(key => !['total_breakdown', 'variance_from_total'].includes(key));
+  if (methodKeys.length === 0) return 0;
+
+  const percentages = methodKeys.map(method => paymentBreakdown[method].percentage || 0);
 
   let entropy = 0;
   percentages.forEach(percentage => {
@@ -2219,7 +2248,8 @@ function calculatePaymentDiversity(paymentBreakdown) {
     }
   });
 
-  return Math.min(100, (entropy / Math.log2(methods.length)) * 100);
+  const base = Math.log2(Math.max(1, methodKeys.length));
+  return base === 0 ? 0 : Math.min(100, (entropy / base) * 100);
 }
 
 function calculateRevenueQualityScore(analysis) {

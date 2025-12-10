@@ -1263,7 +1263,7 @@ function ManagementDashboard() {
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                                             {Object.entries(dashboardData.enhanced_analytics.sales.payment_breakdown).map(([method, data]) => {
                                                 if (method === 'total_breakdown' || method === 'variance_from_total') return null;
-                                                const methodNames = { cash: 'Cash', card: 'Card', delivery_aggregator_1: 'Delivery 1', delivery_aggregator_2: 'Delivery 2' };
+                                                const methodNames = { cash: 'Cash', card: 'Card', delivery_aggregators: 'Delivery Aggregators' };
                                                 return (
                                                     <div key={method} className="border rounded p-2">
                                                         <div className="flex justify-between items-center">
@@ -1276,6 +1276,16 @@ function ManagementDashboard() {
                                                             </div>
                                                             <span className="text-xs text-gray-500">{data.percentage.toFixed(1)}%</span>
                                                         </div>
+                                                        {method === 'delivery_aggregators' && data.details && data.details.length > 0 && (
+                                                            <div className="mt-2 space-y-1">
+                                                                {data.details.map((agg, idx) => (
+                                                                    <div key={`${agg.name || 'agg'}-${idx}`} className="flex justify-between text-xs text-gray-600">
+                                                                        <span>{agg.name || `Aggregator ${idx + 1}`}</span>
+                                                                        <span>{(agg.amount || 0).toFixed(2)}</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 );
                                             }).filter(Boolean)}
