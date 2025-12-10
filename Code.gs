@@ -745,29 +745,32 @@ function validateManagementPin(inputPin) {
 // Check if entry exists for given date (EXACT from Employee Code.gs)
 function checkExistingEntry(dateString) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
     const targetDate = new Date(dateString).toDateString();
-    
-    const shawarmaData = getSheetData('DailyShawarmaStack');
-    
-    const existingEntry = shawarmaData.find(row => {
-      if (!row.date) return false;
-      return new Date(row.date).toDateString() === targetDate;
-    });
-    
-    if (existingEntry) {
+    const report = JSON.parse(generateDailyReport(dateString));
+
+    const inventoryExists = !!(report.inventory || report.rawProteins || report.marinatedProteins || report.bread || report.highCostItems);
+    const entryExists = !!(report.dataFound || report.shawarma || report.sales || inventoryExists);
+
+    if (entryExists) {
+      const entrySummary = {
+        shawarma: !!report.shawarma,
+        sales: !!report.sales,
+        inventory: inventoryExists,
+        pettyCash: Array.isArray(report.pettyCashEntries) && report.pettyCashEntries.length > 0
+      };
+
       return JSON.stringify({
         exists: true,
-        entry: existingEntry,
+        entry: entrySummary,
         entryDate: targetDate
       });
     }
-    
+
     return JSON.stringify({
       exists: false,
       entryDate: targetDate
     });
-    
+
   } catch (error) {
     Logger.log('Error checking existing entry: ' + error.toString());
     throw new Error('Failed to check existing entry: ' + error.message);
@@ -775,8 +778,10 @@ function checkExistingEntry(dateString) {
 }
 
 // Delete existing entries for a specific date (EXACT from Employee Code.gs)
-function deleteExistingEntries(dateString) {
+function deleteExistingEntries(dateString, options = {}) {
   try {
+    const preserveLegacy = options.preserveLegacy === true;
+    const skipLegacyDeletes = preserveLegacy && !DATA_NAMESPACE;
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const targetDate = new Date(dateString).toDateString();
 
@@ -790,7 +795,19 @@ function deleteExistingEntries(dateString) {
       'SnapshotLog'
     ];
 
-    const sheetModes = (MIGRATION_CONFIG.dualWriteMode && DATA_NAMESPACE) ? ['namespaced', 'base'] : ['namespaced'];
+    const legacySheetNames = new Set([
+      'DailyShawarmaStack',
+      'DailyRawProteins',
+      'DailyMarinatedProteins',
+      'DailyBreadTracking',
+      'DailyHighCostItems',
+      'DailySales',
+      'DailySalesBreakdown',
+      'DailyPettyCash',
+      'PettyCashDetail'
+    ]);
+
+    const sheetModes = ['namespaced'];
 
     const getSheetByMode = (sheetName, mode) => {
       return mode === 'base' ? ss.getSheetByName(sheetName) : getSheetWithNamespace(sheetName, ss);
@@ -800,6 +817,8 @@ function deleteExistingEntries(dateString) {
       const deletedDailySalesIds = [];
 
       sheetsToClean.forEach(sheetName => {
+        if (skipLegacyDeletes && legacySheetNames.has(sheetName)) return;
+
         const sheet = getSheetByMode(sheetName, mode);
         if (!sheet) return;
 
@@ -830,6 +849,8 @@ function deleteExistingEntries(dateString) {
       });
 
       const cleanupRelatedSheet = (sheetName, dateField, idField) => {
+        if (skipLegacyDeletes && legacySheetNames.has(sheetName)) return;
+
         const sheet = getSheetByMode(sheetName, mode);
         if (!sheet || sheet.getLastRow() <= 1) return;
 
@@ -889,8 +910,7 @@ function saveDailyEntry(entryData) {
 
     const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
 
-    const hasNamespace = !!DATA_NAMESPACE;
-    const legacySaveEnabled = MIGRATION_CONFIG.dualWriteMode && hasNamespace;
+    const legacySaveEnabled = MIGRATION_CONFIG.dualWriteMode;
 
     if (entryData.isUpdate) {
       if (!entryData.managementPin || !validateManagementPin(entryData.managementPin)) {
@@ -900,7 +920,7 @@ function saveDailyEntry(entryData) {
         });
       }
 
-      deleteExistingEntries(entryDate);
+      deleteExistingEntries(entryDate, { preserveLegacy: true });
     }
 
     if (MIGRATION_CONFIG.enabled) {
@@ -956,12 +976,19 @@ function saveDailyEntryToNewTables(entryData) {
   const entryDate = entryData.date ? new Date(entryData.date).toDateString() : new Date().toDateString();
   const employeeId = entryData.employeeId || 'unknown';
 
+  // Normalize inventory payload when the client sends flattened keys only
+  const inventoryData = (entryData.rawProteins || entryData.marinatedProteins || entryData.bread || entryData.highCostItems)
+    ? entryData
+    : { ...entryData, ...convertInventoryDataToNestedFormat(entryData.inventory) };
+
+  normalizeInventoryAliases(inventoryData);
+
   if (entryData.shawarmaStack) {
     saveShawarmaStackData(entryData, entryDate, employeeId);
   }
 
-  if (entryData.rawProteins || entryData.marinatedProteins || entryData.bread || entryData.highCostItems) {
-    saveInventorySnapshots(entryData, entryDate, employeeId);
+  if (inventoryData.rawProteins || inventoryData.marinatedProteins || inventoryData.bread || inventoryData.highCostItems) {
+    saveInventorySnapshots(inventoryData, entryDate, employeeId);
   }
 
   let dailySalesId = null;
@@ -998,6 +1025,8 @@ function saveDailyEntryToOldTables(entryData) {
     inventoryData = convertInventoryDataToNestedFormat(entryData.inventory);
   }
 
+  normalizeInventoryAliases(inventoryData);
+
   if (entryData.shawarmaStack) {
     saveToOldShawarmaTable(entryData, entryDate, employeeId);
   }
@@ -1024,6 +1053,46 @@ function saveToOldSalesTable(entryData, entryDate, employeeId) {
 function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employeeName) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
+  const upsertLegacyRow = (sheet, row) => {
+    if (!sheet) return;
+
+    const data = sheet.getDataRange().getValues();
+    if (data.length <= 1) {
+      sheet.appendRow(row);
+      return;
+    }
+
+    const dateIdx = 1; // legacy sheets store the entry date in column B
+    for (let i = 1; i < data.length; i++) {
+      const existingDate = data[i][dateIdx];
+      if (existingDate && new Date(existingDate).toDateString() === new Date(entryDate).toDateString()) {
+        const width = Math.max(data[i].length, row.length);
+        const merged = new Array(width);
+
+        for (let col = 0; col < width; col++) {
+          if (col === 0) {
+            merged[col] = data[i][col] || row[col]; // keep existing UUID when present
+            continue;
+          }
+
+          const incoming = col < row.length ? row[col] : undefined;
+          const hasIncomingValue = incoming !== '' && incoming !== null && typeof incoming !== 'undefined';
+
+          if (hasIncomingValue) {
+            merged[col] = incoming;
+          } else {
+            merged[col] = data[i][col];
+          }
+        }
+
+        sheet.getRange(i + 1, 1, 1, merged.length).setValues([merged]);
+        return;
+      }
+    }
+
+    sheet.appendRow(row);
+  };
+
   if (inventoryData.rawProteins && Object.keys(inventoryData.rawProteins).length > 0) {
     const rawProteinsSheet = ss.getSheetByName('DailyRawProteins');
     const row = [
@@ -1046,7 +1115,7 @@ function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employee
       new Date(),
       new Date()
     ];
-    rawProteinsSheet.appendRow(row);
+    upsertLegacyRow(rawProteinsSheet, row);
   }
 
   if (inventoryData.marinatedProteins && Object.keys(inventoryData.marinatedProteins).length > 0) {
@@ -1079,7 +1148,7 @@ function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employee
       new Date(),
       new Date()
     ];
-    marinatedSheet.appendRow(row);
+    upsertLegacyRow(marinatedSheet, row);
   }
 
   if (inventoryData.bread && Object.keys(inventoryData.bread).length > 0) {
@@ -1104,7 +1173,7 @@ function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employee
       new Date(),
       new Date()
     ];
-    breadSheet.appendRow(row);
+    upsertLegacyRow(breadSheet, row);
   }
 
   if (inventoryData.highCostItems && Object.keys(inventoryData.highCostItems).length > 0) {
@@ -1125,7 +1194,7 @@ function saveToOldInventoryTables(inventoryData, entryDate, employeeId, employee
       new Date(),
       new Date()
     ];
-    highCostSheet.appendRow(row);
+    upsertLegacyRow(highCostSheet, row);
   }
 }
 
@@ -1142,6 +1211,10 @@ function convertInventoryDataToNestedFormat(inventory) {
     'chicken_breast_received': 'rawProteins.frozen_chicken_breast_received',
     'chicken_breast_expired': 'rawProteins.frozen_chicken_breast_expired',
     'chicken_breast_remaining': 'rawProteins.frozen_chicken_breast_remaining',
+    'frozen_chicken_breast_opening': 'rawProteins.frozen_chicken_breast_opening',
+    'frozen_chicken_breast_received': 'rawProteins.frozen_chicken_breast_received',
+    'frozen_chicken_breast_expired': 'rawProteins.frozen_chicken_breast_expired',
+    'frozen_chicken_breast_remaining': 'rawProteins.frozen_chicken_breast_remaining',
     'chicken_shawarma_opening': 'rawProteins.chicken_shawarma_opening',
     'chicken_shawarma_received': 'rawProteins.chicken_shawarma_received',
     'chicken_shawarma_expired': 'rawProteins.chicken_shawarma_expired',
@@ -1204,6 +1277,33 @@ function convertInventoryDataToNestedFormat(inventory) {
   });
 
   return nested;
+}
+
+function normalizeInventoryAliases(inventoryData) {
+  if (!inventoryData || !inventoryData.rawProteins) return inventoryData;
+
+  const coalesce = (primary, alias) => {
+    if (primary !== '' && primary !== null && typeof primary !== 'undefined') {
+      return primary;
+    }
+    return alias;
+  };
+
+  const rawProteins = inventoryData.rawProteins;
+  const suffixes = ['opening', 'received', 'expired', 'remaining'];
+
+  suffixes.forEach(function(suffix) {
+    const frozenKey = 'frozen_chicken_breast_' + suffix;
+    const legacyKey = 'chicken_breast_' + suffix;
+    const value = coalesce(rawProteins[frozenKey], rawProteins[legacyKey]);
+
+    if (value !== '' && value !== null && typeof value !== 'undefined') {
+      rawProteins[frozenKey] = value;
+      rawProteins[legacyKey] = value;
+    }
+  });
+
+  return inventoryData;
 }
 
 function saveShawarmaStackData(entryData, entryDate, employeeId) {
@@ -1310,11 +1410,28 @@ function generateDailyReport(date) {
       }
     }
 
-    if (!reportData.dataFound && MIGRATION_CONFIG.fallbackToOld) {
+    const shouldFallbackForInventory = !reportData.inventory && MIGRATION_CONFIG.fallbackToOld;
+
+    if ((!reportData.dataFound || shouldFallbackForInventory) && MIGRATION_CONFIG.fallbackToOld) {
       try {
         const oldTableData = generateReportFromOldTables(targetDateString);
         if (oldTableData && oldTableData.dataFound) {
-          reportData = { ...reportData, ...oldTableData, dataSource: 'old_tables' };
+          const mergedReport = { ...reportData };
+
+          if (shouldFallbackForInventory) {
+            mergedReport.inventory = oldTableData.inventory || mergedReport.inventory;
+            mergedReport.rawProteins = mergedReport.rawProteins || oldTableData.rawProteins;
+            mergedReport.marinatedProteins = mergedReport.marinatedProteins || oldTableData.marinatedProteins;
+            mergedReport.bread = mergedReport.bread || oldTableData.bread;
+            mergedReport.highCostItems = mergedReport.highCostItems || oldTableData.highCostItems;
+          }
+
+          mergedReport.dataFound = mergedReport.dataFound || oldTableData.dataFound;
+          mergedReport.dataSource = reportData.dataSource === 'new_tables' && shouldFallbackForInventory
+            ? 'hybrid_new_with_legacy_inventory'
+            : 'old_tables';
+
+          reportData = mergedReport;
           logMigrationActivity('old_tables_read_fallback', {
             date: targetDateString,
             hasData: oldTableData.dataFound
@@ -1419,6 +1536,16 @@ function mapSnapshotLogToFormFormat(snapshotEntries) {
       });
     }
 
+    const chickenBreastValue =
+      flattened.frozen_chicken_breast_remaining != null
+        ? flattened.frozen_chicken_breast_remaining
+        : flattened.chicken_breast_remaining;
+
+    if (chickenBreastValue != null) {
+      flattened.frozen_chicken_breast_remaining = chickenBreastValue;
+      flattened.chicken_breast_remaining = chickenBreastValue;
+    }
+
     return flattened;
   } catch (error) {
     logMigrationActivity('map_snapshot_log_error', { error: error.message }, 'error');
@@ -1458,6 +1585,8 @@ function generateReportFromOldTables(targetDateString) {
   const bread = breadData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
   const highCostItems = highCostData.find(row => row.count_date && new Date(row.count_date).toDateString() === targetDateString) || null;
 
+  const inventoryFlat = mapLegacyInventoryToFlattened(rawProteins, marinatedProteins, bread, highCostItems);
+
   return {
     date: targetDateString,
     dataFound: !!(todayShawarma || todaySales || rawProteins || marinatedProteins || bread || highCostItems || todayBreakdown),
@@ -1467,10 +1596,50 @@ function generateReportFromOldTables(targetDateString) {
     marinatedProteins: marinatedProteins,
     bread: bread,
     highCostItems: highCostItems,
+    inventory: inventoryFlat,
     pettyCashEntries: pettyCashEntries,
     salesBreakdown: todayBreakdown,
     notes: ''
   };
+}
+
+function mapLegacyInventoryToFlattened(rawProteins, marinatedProteins, bread, highCostItems) {
+  const inventory = {};
+
+  if (rawProteins) {
+    const chickenBreastRemaining =
+      rawProteins.frozen_chicken_breast_remaining != null
+        ? rawProteins.frozen_chicken_breast_remaining
+        : rawProteins.chicken_breast_remaining;
+
+    // Preserve both legacy and snapshot-friendly keys so frozen chicken breast
+    // loads even when old tables used a different column label.
+    inventory.frozen_chicken_breast_remaining = chickenBreastRemaining;
+    inventory.chicken_breast_remaining = chickenBreastRemaining;
+    inventory.chicken_shawarma_remaining = rawProteins.chicken_shawarma_remaining;
+    inventory.steak_remaining = rawProteins.steak_remaining;
+  }
+
+  if (marinatedProteins) {
+    inventory.fahita_chicken_remaining = marinatedProteins.fahita_chicken_remaining;
+    inventory.chicken_sub_remaining = marinatedProteins.chicken_sub_remaining;
+    inventory.spicy_strips_remaining = marinatedProteins.spicy_strips_remaining;
+    inventory.original_strips_remaining = marinatedProteins.original_strips_remaining;
+    inventory.marinated_steak_remaining = marinatedProteins.marinated_steak_remaining;
+  }
+
+  if (bread) {
+    inventory.saj_bread_remaining = bread.saj_bread_remaining;
+    inventory.pita_bread_remaining = bread.pita_bread_remaining;
+    inventory.bread_rolls_remaining = bread.bread_rolls_remaining;
+  }
+
+  if (highCostItems) {
+    inventory.cream_remaining = highCostItems.cream_remaining;
+    inventory.mayo_remaining = highCostItems.mayo_remaining;
+  }
+
+  return inventory;
 }
 
 function generateDashboardReport(date, options = {}) {
