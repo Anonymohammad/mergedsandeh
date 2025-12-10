@@ -1668,14 +1668,14 @@ function generateDashboardReport(date, options = {}) {
       dashboardData.enhanced_analytics.pettyCash = analyzePettyCashData(baseReport.pettyCashEntries, targetDate);
     }
 
-    if (config.includeInventoryAnalysis) {
-      dashboardData.enhanced_analytics.inventory = analyzeInventoryData(baseReport, targetDate);
-      dashboardData.enhanced_analytics.inventory_activity = generateInventoryActivity(targetDate);
-    }
+  if (config.includeInventoryAnalysis) {
+    dashboardData.enhanced_analytics.inventory = analyzeInventoryData(baseReport, targetDate);
+    dashboardData.enhanced_analytics.inventory_activity = generateInventoryActivity(targetDate);
+  }
 
-    if (baseReport.sales) {
-      dashboardData.enhanced_analytics.sales = analyzeSalesData(baseReport.sales, targetDate);
-    }
+  if (baseReport.sales) {
+    dashboardData.enhanced_analytics.sales = analyzeSalesData(baseReport.sales, targetDate, baseReport.salesBreakdown);
+  }
 
     if (config.compareToYesterday) {
       dashboardData.enhanced_analytics.comparisons = getComparativeData(targetDate, config);
@@ -2106,7 +2106,7 @@ function getItemUnitCost(category, itemName) {
   return 0;
 }
 
-function analyzeSalesData(salesData, targetDate) {
+function analyzeSalesData(salesData, targetDate, salesBreakdown) {
   const analysis = {
     total_revenue: parseFloat(salesData.total_revenue) || 0,
     shawarma_revenue: parseFloat(salesData.shawarma_revenue) || 0,
@@ -2116,10 +2116,23 @@ function analyzeSalesData(salesData, targetDate) {
     recommendations: []
   };
 
-  const cash = parseFloat(salesData.cash_sales) || 0;
-  const card = parseFloat(salesData.card_sales) || 0;
-  const delivery1 = parseFloat(salesData.delivery_aggregator_1) || 0;
-  const delivery2 = parseFloat(salesData.delivery_aggregator_2) || 0;
+  function getPaymentAmount(fields) {
+    for (let i = 0; i < fields.length; i++) {
+      const field = fields[i];
+      if (salesData && salesData[field] !== undefined && salesData[field] !== '') {
+        return parseFloat(salesData[field]) || 0;
+      }
+      if (salesBreakdown && salesBreakdown[field] !== undefined && salesBreakdown[field] !== '') {
+        return parseFloat(salesBreakdown[field]) || 0;
+      }
+    }
+    return 0;
+  }
+
+  const cash = getPaymentAmount(['cash_sales']);
+  const card = getPaymentAmount(['card_sales']);
+  const delivery1 = getPaymentAmount(['delivery_aggregator_1', 'delivery_sales']);
+  const delivery2 = getPaymentAmount(['delivery_aggregator_2']);
   const pettyCash = parseFloat(salesData.petty_cash_total) || 0;
 
   const paymentTotal = cash + card + delivery1 + delivery2;
