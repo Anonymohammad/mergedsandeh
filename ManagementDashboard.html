@@ -20,6 +20,15 @@ function ManagementDashboard() {
     const [aggregatorSaving, setAggregatorSaving] = React.useState(false);
     const [showAggregatorDetails, setShowAggregatorDetails] = React.useState(false);
 
+    const deliveryAggregatorDetails = dashboardData &&
+        dashboardData.enhanced_analytics &&
+        dashboardData.enhanced_analytics.sales &&
+        dashboardData.enhanced_analytics.sales.payment_breakdown &&
+        dashboardData.enhanced_analytics.sales.payment_breakdown.delivery_aggregators &&
+        dashboardData.enhanced_analytics.sales.payment_breakdown.delivery_aggregators.details;
+
+    const hasDeliveryAggregatorDetails = deliveryAggregatorDetails && deliveryAggregatorDetails.length > 0;
+
     React.useEffect(() => {
         if (selectedPeriod !== 'custom' || (selectedPeriod === 'custom' && customDate)) {
             loadDashboardData();
@@ -1288,7 +1297,7 @@ function ManagementDashboard() {
                                             }).filter(Boolean)}
                                         </div>
 
-                                        {dashboardData.enhanced_analytics.sales.payment_breakdown.delivery_aggregators?.details?.length > 0 && (
+                                        {hasDeliveryAggregatorDetails && (
                                             <div className="mt-4 bg-white border rounded-lg shadow-sm p-4">
                                                 <div className="flex items-center justify-between mb-2">
                                                     <div className="flex items-center gap-2">
@@ -1307,7 +1316,7 @@ function ManagementDashboard() {
                                                 {showAggregatorDetails && (
                                                     <div className="border rounded-md bg-gray-50 p-3">
                                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                                            {dashboardData.enhanced_analytics.sales.payment_breakdown.delivery_aggregators.details.map((agg, idx) => (
+                                                            {deliveryAggregatorDetails.map((agg, idx) => (
                                                                 <div key={`${agg.name || 'agg'}-${idx}`} className="flex items-center justify-between text-sm text-gray-700">
                                                                     <span className="truncate pr-2">{agg.name || `Aggregator ${idx + 1}`}</span>
                                                                     <span className="font-medium">{(agg.amount || 0).toFixed(2)}</span>
